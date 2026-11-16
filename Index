@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <title>Expense Tracker</title>
+  <meta name="description" content="Personal expense tracker: budgets, recurring entries, insights and monthly reports. Your data stays on your phone.">
+  <meta name="theme-color" content="#0A0A0B">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Expenses">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main id="app" aria-live="polite"></main>
+  <nav id="tabbar" class="tabbar" aria-label="Sections"></nav>
+  <div id="sheet-backdrop" class="sheet-backdrop hidden" data-action="sheet-cancel"></div>
+  <div id="sheet" class="sheet hidden" role="dialog" aria-modal="true"></div>
+  <div id="lock" class="lock hidden" role="dialog" aria-modal="true"></div>
+  <div id="toast" class="toast" role="status"></div>
+  <noscript><p style="padding:24px;color:#C9CDD5">Expense Tracker needs JavaScript to run.</p></noscript>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
