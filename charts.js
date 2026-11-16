@@ -150,3 +150,23 @@ export function compact(v) {
   if (a >= 1e3) return (v / 1e3).toFixed(1).replace(/\.0$/, '') + 'k';
   return String(Math.round(v));
 }
+
+// Calendar heat-map of daily spending for one month. Cells carry data-day so taps can open that day.
+export function heatmap(daily, key, { size = 40, gap = 6 } = {}) {
+  const max = Math.max(...daily.map((d) => d.total), 0);
+  const first = new Date(key.year, key.month - 1, 1).getDay(); // 0 = Sunday
+  const offset = (first + 6) % 7; // Monday first
+  const cells = [];
+  const labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((l, i) => `<text x="${i * (size + gap) + size / 2}" y="12" class="axis tiny" text-anchor="middle">${l}</text>`).join('');
+  daily.forEach((d, i) => {
+    const pos = i + offset, col = pos % 7, row = Math.floor(pos / 7);
+    const x = col * (size + gap), y = 22 + row * (size + gap);
+    const ratio = max > 0 ? d.total / max : 0;
+    const fill = d.total === 0 ? TRACK : ratio > 0.66 ? GOLD : ratio > 0.33 ? GOLD_DEEP : 'rgba(212,175,55,0.35)';
+    const textColor = ratio > 0.66 ? '#0A0A0B' : '#C9CDD5';
+    cells.push(`<g class="hm-cell" data-day="${d.day}" style="cursor:pointer"><rect x="${x}" y="${y}" width="${size}" height="${size}" rx="10" fill="${fill}"/><text x="${x + size / 2}" y="${y + size / 2 + 4}" text-anchor="middle" font-size="12" fill="${textColor}" font-weight="600">${d.day}</text></g>`);
+  });
+  const rows = Math.ceil((daily.length + offset) / 7);
+  const w = 7 * size + 6 * gap, h = 22 + rows * (size + gap) - gap;
+  return `<svg class="chart heatmap" viewBox="0 0 ${w} ${h}" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Spending by day">${labels}${cells.join('')}</svg>`;
+}

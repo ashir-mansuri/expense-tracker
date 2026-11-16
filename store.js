@@ -83,12 +83,20 @@ function defaultState() {
   for (const name of DEFAULT_INCOME) categories.push({ id: uid(), name, type: 'Income', sortOrder: order++, budget: 0, budgetCurrency: 'EUR' });
   for (const name of DEFAULT_EXPENSE) categories.push({ id: uid(), name, type: 'Expense', sortOrder: order++, budget: 0, budgetCurrency: 'EUR' });
   return {
-    version: 1,
+    version: 2,
     transactions: [],
     categories,
     rules: [],
+    accounts: [],
+    transfers: [],
+    goals: [],
     settings: {
       currency: guessCurrency(),
+      homeCurrency: null,     // show everything converted into this currency (null = off)
+      showAll: false,         // dashboard shows all currencies converted into homeCurrency
+      rates: null,            // { base: 'USD', date, rates: { EUR: 0.92, ... } }
+      budgetRollover: false,  // unspent budget carries into next month
+      lastAccount: null,
       pinHash: null,
       reportsEnabled: false,
       reportDay: 1,
@@ -119,6 +127,9 @@ class Store {
         transactions: parsed.transactions || [],
         categories: parsed.categories && parsed.categories.length ? parsed.categories : base.categories,
         rules: parsed.rules || [],
+        accounts: parsed.accounts || [],
+        transfers: parsed.transfers || [],
+        goals: parsed.goals || [],
       };
     } catch (e) {
       console.error('Could not read saved data', e);
@@ -170,9 +181,54 @@ class Store {
   }
 
   deleteTransaction(id) {
+    const item = this.state.transactions.find((t) => t.id === id) || null;
     this.state.transactions = this.state.transactions.filter((t) => t.id !== id);
     this.commit();
+    return item;
   }
+
+  restoreTransaction(item) {
+    if (!item || this.state.transactions.some((t) => t.id === item.id)) return;
+    this.state.transactions.push(item);
+    this.commit();
+  }
+
+  // ---- accounts (wallets) and transfers between them
+  get accounts() { return this.state.accounts; }
+  addAccount({ name, opening = 0, currency }) {
+    const a = { id: uid(), name, opening, currency, createdAt: Date.now() };
+    this.state.accounts.push(a); this.commit(); return a;
+  }
+  updateAccount(id, changes) { const a = this.state.accounts.find((x) => x.id === id); if (a) { Object.assign(a, changes); this.commit(); } }
+  deleteAccount(id) {
+    this.state.accounts = this.state.accounts.filter((a) => a.id !== id);
+    this.state.transfers = this.state.transfers.filter((t) => t.from !== id && t.to !== id);
+    for (const t of this.state.transactions) if (t.account === id) delete t.account;
+    this.commit();
+  }
+  get transfers() { return this.state.transfers; }
+  addTransfer({ date, from, to, amount, currency, note = '' }) {
+    const t = { id: uid(), date, from, to, amount, currency, note, createdAt: Date.now() };
+    this.state.transfers.push(t); this.commit(); return t;
+  }
+  deleteTransfer(id) { this.state.transfers = this.state.transfers.filter((t) => t.id !== id); this.commit(); }
+  accountBalance(id) {
+    const a = this.state.accounts.find((x) => x.id === id);
+    if (!a) return 0;
+    let bal = a.opening || 0;
+    for (const t of this.state.transactions) if (t.account === id && t.currency === a.currency) bal += t.type === 'Income' ? t.amount : -t.amount;
+    for (const t of this.state.transfers) { if (t.from === id) bal -= t.amount; if (t.to === id) bal += t.amount; }
+    return bal;
+  }
+
+  // ---- savings goals
+  get goals() { return this.state.goals; }
+  addGoal({ name, target, currency, deadline = null, startDate }) {
+    const g = { id: uid(), name, target, currency, deadline, startDate, createdAt: Date.now() };
+    this.state.goals.push(g); this.commit(); return g;
+  }
+  updateGoal(id, changes) { const g = this.state.goals.find((x) => x.id === id); if (g) { Object.assign(g, changes); this.commit(); } }
+  deleteGoal(id) { this.state.goals = this.state.goals.filter((g) => g.id !== id); this.commit(); }
 
   eraseAllTransactions() {
     this.state.transactions = [];
@@ -276,8 +332,8 @@ class Store {
   }
 
   // ---- backup
-  exportBackup() {
-    return JSON.stringify({ app: 'Expense Tracker', version: 1, exportedAt: new Date().toISOString(), ...this.state }, null, 2);
+  exportBackup(receipts = {}) {
+    return JSON.stringify({ app: 'Expense Tracker', version: 2, exportedAt: new Date().toISOString(), ...this.state, receipts }, null, 2);
   }
 
   restoreBackup(json) {
@@ -296,7 +352,12 @@ class Store {
     for (const r of parsed.rules || []) {
       if (!ruleIds.has(r.id)) { this.state.rules.push(r); out.rules += 1; }
     }
+    for (const key of ['accounts', 'transfers', 'goals']) {
+      const have = new Set(this.state[key].map((x) => x.id));
+      for (const x of parsed[key] || []) if (x && x.id && !have.has(x.id)) this.state[key].push(x);
+    }
     this.commit();
+    out.receipts = parsed.receipts || {};
     return out;
   }
 }
@@ -350,22 +411,54 @@ const DATE_FORMATS = [
   /^(\d{1,2})-(\d{1,2})-(\d{2,4})$/,         // d-m-yyyy
 ];
 
-export function parseDate(text) {
-  const token = (text || '').trim().split(/[ T]/)[0];
+const MONTH_NAMES = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12, mrz: 3, mär: 3, mai: 5, okt: 10, dez: 12 };
+
+// dayFirst: how to read 03/04/2025 when both readings are possible (true = 3 April, as in India and Germany).
+export function parseDate(text, dayFirst = true) {
+  const raw = (text || '').trim();
+  const token = raw.split(/[ T]/)[0];
   let m;
   if ((m = token.match(DATE_FORMATS[0]))) return build(+m[1], +m[2], +m[3]);
-  if ((m = token.match(DATE_FORMATS[1]))) {
+  if ((m = raw.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/))) return build(+m[1], +m[2], +m[3]);
+  if ((m = token.match(DATE_FORMATS[1])) || (m = token.match(DATE_FORMATS[3]))) {
     let a = +m[1], b = +m[2], y = +m[3];
-    if (a > 12 && b <= 12) [a, b] = [b, a];
-    return build(y, a, b);
+    if (a > 12 && b <= 12) return build(y, b, a);
+    if (b > 12 && a <= 12) return build(y, a, b);
+    return dayFirst ? build(y, b, a) : build(y, a, b);
   }
-  if ((m = token.match(DATE_FORMATS[2])) || (m = token.match(DATE_FORMATS[3]))) return build(+m[3], +m[2], +m[1]);
+  if ((m = token.match(DATE_FORMATS[2]))) return build(+m[3], +m[2], +m[1]);
+  // 16 Nov 2026 / 16-Nov-26 / 16. November 2026 / Nov 16, 2026 / November 16 2026
+  const words = raw.replace(/,/g, ' ').replace(/\./g, ' ').replace(/-/g, ' ').split(/\s+/).filter(Boolean);
+  if (words.length >= 3) {
+    const mi = words.findIndex((w) => MONTH_NAMES[w.slice(0, 4).toLowerCase()] !== undefined || MONTH_NAMES[w.slice(0, 3).toLowerCase()] !== undefined);
+    if (mi >= 0) {
+      const mo = MONTH_NAMES[words[mi].slice(0, 4).toLowerCase()] ?? MONTH_NAMES[words[mi].slice(0, 3).toLowerCase()];
+      const nums = words.filter((w, i) => i !== mi && /^\d{1,4}$/.test(w)).map(Number);
+      if (nums.length >= 2) {
+        const y = nums.find((n) => n > 31) ?? nums[1];
+        const d = nums.find((n) => n <= 31);
+        if (d) return build(y, mo, d);
+      }
+    }
+  }
   return null;
   function build(y, mo, d) {
     if (y < 100) y += 2000;
     if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
     return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   }
+}
+
+// "14:35", "14:35:07", "2:35 pm", or a time inside a date-time cell → "14:35" or null
+export function parseTime(text) {
+  const m = (text || '').match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?/i);
+  if (!m) return null;
+  let h = +m[1]; const min = +m[2];
+  if (h > 23 || min > 59) return null;
+  const ap = (m[3] || '').toLowerCase();
+  if (ap.startsWith('p') && h < 12) h += 12;
+  if (ap.startsWith('a') && h === 12) h = 0;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }
 
 export function parseAmount(text) {
@@ -401,6 +494,7 @@ export function parseCSV(text) {
   const col = (n) => names.indexOf(n);
   const dateC = col('date'), amountC = col('amount'), typeC = col('type'), catC = col('category'), curC = col('currency');
   const descC = names.findIndex((n) => ['description', 'desc', 'note', 'notes'].includes(n));
+  const timeC = col('time'), tagsC = col('tags');
   const val = (row, c) => (c >= 0 && c < row.length ? row[c].trim() : '');
   for (const row of table.slice(headerIndex + 1)) {
     if (row.every((c) => !c.trim())) continue;
@@ -414,12 +508,15 @@ export function parseCSV(text) {
     if (!CURRENCY_CODES.includes(currency)) {
       currency = amountText.includes('€') ? 'EUR' : amountText.includes('₹') ? 'INR' : amountText.includes('CA$') ? 'CAD' : amountText.includes('$') ? 'USD' : null;
     }
-    result.rows.push({ date, type, category, amount: Math.abs(raw), currency, desc: val(row, descC) });
+    const row2 = { date, type, category, amount: Math.abs(raw), currency, desc: val(row, descC) };
+    const time = parseTime(val(row, timeC)); if (time) row2.time = time;
+    const tags = val(row, tagsC).split(/[,;]/).map((x) => x.trim()).filter(Boolean); if (tags.length) row2.tags = tags;
+    result.rows.push(row2);
   }
   return result;
 }
 
-function detectDelimiter(text) {
+export function detectDelimiter(text) {
   const lines = text.split(/\r?\n/).slice(0, 15);
   const line = lines.find((l) => l.toLowerCase().includes('date')) || lines[0] || '';
   let best = ',', bestCount = 0;
@@ -430,7 +527,7 @@ function detectDelimiter(text) {
   return best;
 }
 
-function parseTable(text, delimiter) {
+export function parseTable(text, delimiter) {
   const rows = [];
   let row = [], field = '', inQuotes = false;
   for (let i = 0; i < text.length; i++) {
@@ -453,7 +550,8 @@ function parseTable(text, delimiter) {
 export function exportCSV(transactions) {
   const esc = (s) => (/[",;\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s);
   const sorted = [...transactions].sort((a, b) => (a.date === b.date ? a.createdAt - b.createdAt : a.date < b.date ? -1 : 1));
-  const lines = ['Date,Type,Category,Amount,Currency,Description'];
-  for (const t of sorted) lines.push([t.date, t.type, esc(t.category), t.amount.toFixed(2), t.currency, esc(t.desc || '')].join(','));
+  const lines = ['Date,Time,Type,Category,Amount,Currency,Description,Tags,Account'];
+  const accName = (id) => (store.state.accounts.find((a) => a.id === id) || {}).name || '';
+  for (const t of sorted) lines.push([t.date, t.time || '', t.type, esc(t.category), t.amount.toFixed(2), t.currency, esc(t.desc || ''), esc((t.tags || []).join(', ')), esc(accName(t.account))].join(','));
   return '﻿' + lines.join('\r\n') + '\r\n';
 }

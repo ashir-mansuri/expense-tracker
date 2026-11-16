@@ -1,5 +1,6 @@
 // Pure calculations over the ledger: month summaries, insights, sentences.
-import { parseISODate } from './store.js';
+import { parseISODate, nextDue, toISODate } from './store.js';
+import { normalise } from './categorize.js';
 
 export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 export const MONTHS_SHORT = MONTHS.map((m) => m.slice(0, 3));
@@ -112,12 +113,193 @@ export function positiveStreak(items, key) {
   return count;
 }
 
-export function budgets(categories, expenses, currency) {
+// prevSpent: Map of category → last month's spending, used when unspent budget rolls over.
+export function budgets(categories, expenses, currency, prevSpent = null) {
   const spent = new Map(expenses.map((e) => [e.name, e.total]));
   return categories
     .filter((c) => c.type === 'Expense' && c.budget > 0 && c.budgetCurrency === currency)
-    .map((c) => { const s = spent.get(c.name) || 0; return { name: c.name, limit: c.budget, spent: s, ratio: s / c.budget, remaining: c.budget - s }; })
+    .map((c) => {
+      const s = spent.get(c.name) || 0;
+      const carried = prevSpent ? Math.max(0, c.budget - (prevSpent.get(c.name) || 0)) : 0;
+      const limit = c.budget + carried;
+      return { name: c.name, limit, base: c.budget, carried, spent: s, ratio: s / limit, remaining: limit - s };
+    })
     .sort((a, b) => (a.ratio === b.ratio ? a.name.localeCompare(b.name) : b.ratio - a.ratio));
+}
+
+function spentByCategory(items, key) {
+  const m = new Map();
+  for (const t of items) if (t.type === 'Expense' && inMonth(t, key)) m.set(t.category, (m.get(t.category) || 0) + t.amount);
+  return m;
+}
+
+// Average monthly spending over the previous `n` months that have any data.
+function averagePrevious(items, key, n = 3) {
+  const totals = totalsByMonth(items);
+  let cursor = prevKey(key), sum = 0, count = 0;
+  for (let i = 0; i < n; i++) {
+    const v = totals.get(keyStr(cursor));
+    if (v && (v.income || v.expense)) { sum += v.expense; count += 1; }
+    cursor = prevKey(cursor);
+  }
+  return count ? { average: sum / count, months: count } : null;
+}
+
+// Where the month is heading, and what is safe to spend per day until it ends.
+export function forecast(items, key, budgetList, now = new Date()) {
+  if (!keyEq(key, currentKey())) return null;
+  const dim = daysInMonth(key), day = Math.max(now.getDate(), 1), daysLeft = dim - day;
+  const spent = items.filter((t) => t.type === 'Expense' && inMonth(t, key)).reduce((a, t) => a + t.amount, 0);
+  const prev = averagePrevious(items, key);
+  const pace = (spent / day) * dim;
+  // early in the month the pace is noisy, so lean on the recent average until ~10 days are in
+  const w = Math.min(day / 10, 1);
+  const projected = prev ? pace * w + prev.average * (1 - w) : pace;
+  let reference = null, basis = null;
+  if (budgetList.length) { reference = budgetList.reduce((a, b) => a + b.limit, 0); basis = 'budgets'; }
+  else if (prev) { reference = prev.average; basis = 'average'; }
+  const spentInRef = basis === 'budgets' ? budgetList.reduce((a, b) => a + b.spent, 0) : spent;
+  const safePerDay = reference !== null && daysLeft > 0 ? Math.max(0, (reference - spentInRef) / daysLeft) : null;
+  return { spent, projected, daysLeft, reference, basis, safePerDay, overReference: reference !== null && projected > reference };
+}
+
+// Things worth a second look this month: a category far above its usual level, or one very large payment.
+export function alerts(items, key, limit = 3) {
+  const out = [];
+  const now = spentByCategory(items, key);
+  const monthTotal = [...now.values()].reduce((a, b) => a + b, 0);
+  // baseline per category = mean over the previous 3 months that had spending in that category
+  const base = new Map();
+  let cursor = prevKey(key);
+  for (let i = 0; i < 3; i++) {
+    for (const [name, v] of spentByCategory(items, cursor)) { const b = base.get(name) || { sum: 0, n: 0 }; b.sum += v; b.n += 1; base.set(name, b); }
+    cursor = prevKey(cursor);
+  }
+  for (const [name, v] of now) {
+    const b = base.get(name);
+    if (!b || b.n < 2) continue;
+    const mean = b.sum / b.n;
+    if (v >= mean * 1.5 && v - mean >= Math.max(monthTotal * 0.04, 1)) out.push({ kind: 'category', name, now: v, usual: mean, impact: v - mean });
+  }
+  // a single payment ≥ 3× the usual size for its category (needs some history)
+  const samples = new Map();
+  for (const t of items) if (t.type === 'Expense' && !inMonth(t, key)) { if (!samples.has(t.category)) samples.set(t.category, []); samples.get(t.category).push(t.amount); }
+  for (const t of items) {
+    if (t.type !== 'Expense' || !inMonth(t, key)) continue;
+    const arr = samples.get(t.category);
+    if (!arr || arr.length < 5) continue;
+    const sorted = [...arr].sort((a, b) => a - b), median = sorted[Math.floor(sorted.length / 2)];
+    if (t.amount >= median * 3 && t.amount >= Math.max(monthTotal * 0.05, 1)) out.push({ kind: 'large', tx: t, usual: median, impact: t.amount - median });
+  }
+  return out.sort((a, b) => b.impact - a.impact).slice(0, limit);
+}
+
+// Payments that repeat with the same amount at a steady interval.
+export function subscriptions(items, rules) {
+  const groups = new Map();
+  for (const t of items) {
+    if (t.type !== 'Expense') continue;
+    const k = normalise(t.desc) || ('#' + t.category.toLowerCase());
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(t);
+  }
+  const out = [];
+  for (const [, list] of groups) {
+    if (list.length < 3) continue;
+    const sorted = [...list].sort((a, b) => (a.date < b.date ? -1 : 1));
+    const amounts = sorted.map((t) => t.amount).sort((a, b) => a - b);
+    const median = amounts[Math.floor(amounts.length / 2)];
+    const steady = sorted.filter((t) => Math.abs(t.amount - median) <= Math.max(median * 0.03, 0.5));
+    if (steady.length < 3) continue;
+    const gaps = [];
+    for (let i = 1; i < steady.length; i++) gaps.push((parseISODate(steady[i].date) - parseISODate(steady[i - 1].date)) / 86400000);
+    gaps.sort((a, b) => a - b);
+    const gap = gaps[Math.floor(gaps.length / 2)];
+    let frequency = null;
+    if (gap >= 26 && gap <= 35) frequency = 'Monthly';
+    else if (gap >= 6 && gap <= 8) frequency = 'Weekly';
+    else if (gap >= 355 && gap <= 375) frequency = 'Yearly';
+    if (!frequency) continue;
+    const last = steady[steady.length - 1];
+    const hasRule = rules.some((r) => r.active && r.type === 'Expense' && r.category === last.category && Math.abs(r.amount - median) <= Math.max(median * 0.03, 0.5) && r.currency === last.currency);
+    const monthly = frequency === 'Monthly' ? median : frequency === 'Weekly' ? (median * 52) / 12 : median / 12;
+    out.push({ desc: last.desc || last.category, category: last.category, amount: median, currency: last.currency, frequency, count: steady.length, lastDate: last.date, monthly, hasRule });
+  }
+  return out.sort((a, b) => b.monthly - a.monthly);
+}
+
+// Progress towards each savings goal: what was kept (income − expenses) since the goal started.
+export function goalProgress(goals, transactions, now = new Date()) {
+  const todayKey = currentKey();
+  return goals.map((g) => {
+    const items = transactions.filter((t) => t.currency === g.currency && t.date >= g.startDate);
+    const saved = items.reduce((a, t) => a + (t.type === 'Income' ? t.amount : -t.amount), 0);
+    const progress = Math.max(0, Math.min(saved / g.target, 1));
+    // typical monthly saving: last 3 full months with data
+    const totals = totalsByMonth(transactions.filter((t) => t.currency === g.currency));
+    let cursor = prevKey(todayKey), sum = 0, n = 0;
+    for (let i = 0; i < 3; i++) { const v = totals.get(keyStr(cursor)); if (v && (v.income || v.expense)) { sum += v.income - v.expense; n += 1; } cursor = prevKey(cursor); }
+    const perMonth = n ? sum / n : 0;
+    const remaining = Math.max(g.target - saved, 0);
+    let status = 'started', detail = '';
+    if (remaining === 0) { status = 'done'; detail = 'Goal reached'; }
+    else if (g.deadline) {
+      const monthsLeft = Math.max((parseISODate(g.deadline) - now) / (30.44 * 86400000), 0.1);
+      const needed = remaining / monthsLeft;
+      status = perMonth >= needed ? 'on-track' : 'behind';
+      detail = `${status === 'on-track' ? 'On track' : 'Behind'} · needs ${fmtMoney(needed, g.currency)}/month, saving ${fmtMoney(Math.max(perMonth, 0), g.currency)}`;
+    } else if (perMonth > 0) {
+      const months = Math.ceil(remaining / perMonth);
+      status = 'on-track'; detail = `About ${months} ${months === 1 ? 'month' : 'months'} to go at ${fmtMoney(perMonth, g.currency)}/month`;
+    } else detail = 'Add income and expenses to see a forecast';
+    return { ...g, saved: Math.max(saved, 0), progress, remaining, perMonth, status, detail };
+  });
+}
+
+// Recurring payments due in the next `days` days.
+export function upcomingBills(rules, days = 14) {
+  const today = toISODate(new Date());
+  const limit = toISODate(new Date(Date.now() + days * 86400000));
+  const out = [];
+  for (const r of rules) {
+    if (!r.active) continue;
+    const due = nextDue(r);
+    if (due >= today && due <= limit) out.push({ rule: r, due, inDays: Math.round((parseISODate(due) - parseISODate(today)) / 86400000) });
+  }
+  return out.sort((a, b) => (a.due < b.due ? -1 : 1));
+}
+
+// A whole year at a glance.
+export function yearReview(items, year, categories) {
+  const months = Array.from({ length: 12 }, (_, i) => ({ key: { year, month: i + 1 }, label: MONTHS_SHORT[i], income: 0, expense: 0, balance: 0, count: 0 }));
+  const cats = new Map(), catsAll = new Map(), prev = { income: 0, expense: 0, count: 0 };
+  let largest = null;
+  for (const t of items) {
+    const y = +t.date.slice(0, 4);
+    if (t.type === 'Expense') catsAll.set(t.category, (catsAll.get(t.category) || 0) + t.amount);
+    if (y === year - 1) { prev.count += 1; if (t.type === 'Income') prev.income += t.amount; else prev.expense += t.amount; }
+    if (y !== year) continue;
+    const m = months[+t.date.slice(5, 7) - 1];
+    m.count += 1;
+    if (t.type === 'Income') m.income += t.amount;
+    else { m.expense += t.amount; cats.set(t.category, (cats.get(t.category) || 0) + t.amount); if (!largest || t.amount > largest.amount) largest = t; }
+  }
+  for (const m of months) m.balance = m.income - m.expense;
+  const income = months.reduce((a, m) => a + m.income, 0), expense = months.reduce((a, m) => a + m.expense, 0), count = months.reduce((a, m) => a + m.count, 0);
+  const active = months.filter((m) => m.count > 0);
+  const best = active.length ? active.reduce((a, m) => (m.balance > a.balance ? m : a), active[0]) : null;
+  const worst = active.length ? active.reduce((a, m) => (m.balance < a.balance ? m : a), active[0]) : null;
+  const top = rank(cats, catsAll, expense).slice(0, 8);
+  return {
+    year, months, income, expense, balance: income - expense, count, activeMonths: active.length,
+    savingsRate: income > 0 ? (income - expense) / income : 0, averageExpense: active.length ? expense / active.length : 0,
+    best, worst, top, largest, positiveMonths: active.filter((m) => m.balance >= 0).length,
+    previous: prev.count ? { ...prev, balance: prev.income - prev.expense } : null,
+  };
+}
+
+export function yearsWithData(items) {
+  return [...new Set(items.map((t) => +t.date.slice(0, 4)))].sort((a, b) => b - a);
 }
 
 export function quickAddItems(items, limit = 6) {
@@ -159,8 +341,11 @@ export function movers(current, items, prev, limit = 5) {
     .sort((a, b) => Math.abs(b.change) - Math.abs(a.change)).slice(0, limit);
 }
 
-export function insights(items, categories, key, currency, now = new Date()) {
+export function insights(items, categories, key, currency, now = new Date(), { rollover = false } = {}) {
   const s = summary(items, key);
+  // unspent budget carries over only from a month that was actually tracked
+  const prevSpent = rollover ? spentByCategory(items, prevKey(key)) : null;
+  const budgetList = budgets(categories, s.expenseByCategory, currency, prevSpent && prevSpent.size ? prevSpent : null);
   const isCurrent = keyEq(key, currentKey());
   const dim = daysInMonth(key);
   const daysCounted = isCurrent ? Math.max(now.getDate(), 1) : dim;
@@ -174,7 +359,9 @@ export function insights(items, categories, key, currency, now = new Date()) {
     movers: movers(s.expenseByCategory, items, prevKey(key)),
     balanceTrend: trend(items, key),
     streak: positiveStreak(items, key),
-    budgets: budgets(categories, s.expenseByCategory, currency),
+    budgets: budgetList,
+    forecast: forecast(items, key, budgetList, now),
+    alerts: alerts(items, key),
   };
   result.sentences = sentences(result, currency);
   result.tiles = tiles(result, currency);
@@ -213,7 +400,15 @@ export function sentences(ins, currency) {
     lines.push(`The largest single expense was ${l.desc || l.category}, ${money(l.amount)} on ${fmtDay(l.date)}.`);
   }
 
-  if (ins.isCurrentMonth && ins.daysCounted < ins.daysInMonth) lines.push(`You are spending about ${money(ins.perDay)} a day; at this pace the month ends near ${money(ins.projectedExpense)}.`);
+  if (ins.isCurrentMonth && ins.daysCounted < ins.daysInMonth) {
+    const f = ins.forecast;
+    let line = `You are spending about ${money(ins.perDay)} a day; the month is heading for about ${money(f ? f.projected : ins.projectedExpense)}`;
+    if (f && f.safePerDay !== null) {
+      if (f.safePerDay > 0) line += `, so ${money(f.safePerDay)} a day is safe to spend ${f.basis === 'budgets' ? 'within your budgets' : 'to match your usual month'}`;
+      else line += `, already past ${f.basis === 'budgets' ? 'your budgets' : 'your usual month'} (${money(f.reference)})`;
+    }
+    lines.push(line + '.');
+  }
   else {
     const busiest = ins.weekdays.reduce((a, b) => (b.average > a.average ? b : a), ins.weekdays[0]);
     if (busiest && busiest.average > 0) lines.push(`You spent about ${money(ins.perDay)} a day, most of it on ${WEEKDAYS[busiest.weekday]}s.`);
@@ -237,10 +432,13 @@ export function sentences(ins, currency) {
 export function tiles(ins, currency) {
   const s = ins.summary;
   if (s.count === 0) return [];
-  const out = [{ icon: 'calendar', value: fmtMoney(ins.perDay, currency), label: 'Spent per day', tint: 'neutral' }];
-  if (ins.isCurrentMonth && ins.daysCounted < ins.daysInMonth) {
-    out.push({ icon: 'gauge', value: fmtMoney(ins.projectedExpense, currency), label: 'On pace for this month', tint: s.income > 0 && ins.projectedExpense > s.income ? 'bad' : 'neutral' });
+  const out = [];
+  const f = ins.forecast;
+  if (f && ins.daysCounted < ins.daysInMonth) {
+    out.push({ icon: 'gauge', value: fmtMoney(f.projected, currency), label: 'Month forecast', tint: f.overReference || (s.income > 0 && f.projected > s.income) ? 'bad' : 'neutral' });
+    if (f.safePerDay !== null) out.push({ icon: 'leaf', value: fmtMoney(f.safePerDay, currency), label: `Safe to spend / day`, tint: f.safePerDay > 0 ? 'good' : 'bad' });
   }
+  out.push({ icon: 'calendar', value: fmtMoney(ins.perDay, currency), label: 'Spent per day', tint: 'neutral' });
   if (ins.streak >= 2) out.push({ icon: 'flame', value: `${ins.streak} months`, label: 'Streak with money left', tint: 'good' });
   if (s.previousExpense > 0) {
     const change = (s.expense - s.previousExpense) / s.previousExpense;

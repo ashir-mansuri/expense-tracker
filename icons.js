@@ -26,6 +26,8 @@ const P = {
   car: '<path d="M5 17h14M5 17a2 2 0 0 1-2-2v-3l2.5-6h13L21 12v3a2 2 0 0 1-2 2M5 17v2M19 17v2"/><circle cx="7.5" cy="13.5" r="1"/><circle cx="16.5" cy="13.5" r="1"/>',
   gift: '<rect x="3" y="9" width="18" height="12" rx="2"/><path d="M3 13h18M12 9v12M12 9a3 3 0 1 0-3-3c0 3 3 3 3 3zM12 9a3 3 0 1 1 3-3c0 3-3 3-3 3z"/>',
   book: '<path d="M4 5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5M6 19h14"/>',
+  camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  flag: '<path d="M5 21V4M5 4h12l-2 4 2 4H5"/>',
   tag: '<path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   gauge: '<path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4-5"/>',

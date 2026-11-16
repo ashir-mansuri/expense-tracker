@@ -1,8 +1,8 @@
 
 // Offline support: cache the app shell, serve it first, refresh in the background.
-const VERSION = 'et-v2';
+const VERSION = 'et-v3';
 const SHELL = [
-  './', './index.html', './app.css', './app.js', './store.js', './analytics.js', './charts.js', './icons.js',
+  './', './index.html', './app.css', './app.js', './store.js', './analytics.js', './charts.js', './icons.js', './categorize.js', './importer.js', './rates.js', './receipts.js', './xlsx.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
 ];
  
