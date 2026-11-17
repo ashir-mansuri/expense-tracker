@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
   <title>Expense Tracker</title>
-  <meta name="description" content="Personal expense tracker: budgets, recurring entries, insights and monthly reports. Your data stays on your phone.">
-  <meta name="theme-color" content="#0A0A0B">
+  <meta name="description" content="Personal expense tracker: bank statement import, budgets, insights and monthly reports. Your data stays on your phone.">
+  <meta name="theme-color" content="#171E4A">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,6 +13,16 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="preload" href="display-700.woff" as="font" type="font/woff" crossorigin>
+  <script>
+    /* Apply the saved colours before the first paint, so nothing flashes. */
+    try {
+      var s = (JSON.parse(localStorage.getItem('expense-tracker.v1') || '{}').settings) || {};
+      var r = document.documentElement;
+      if (s.look === 'gold') { r.dataset.look = 'gold'; document.querySelector('meta[name="theme-color"]').content = '#141416'; }
+      if (s.theme === 'light' || s.theme === 'dark') r.dataset.theme = s.theme;
+    } catch (e) {}
+  </script>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -20,9 +30,10 @@
   <nav id="tabbar" class="tabbar" aria-label="Sections"></nav>
   <div id="sheet-backdrop" class="sheet-backdrop hidden" data-action="sheet-cancel"></div>
   <div id="sheet" class="sheet hidden" role="dialog" aria-modal="true"></div>
+  <div id="flow" class="flow hidden" role="dialog" aria-modal="true" aria-label="Add a bank statement"></div>
   <div id="lock" class="lock hidden" role="dialog" aria-modal="true"></div>
   <div id="toast" class="toast" role="status"></div>
-  <noscript><p style="padding:24px;color:#C9CDD5">Expense Tracker needs JavaScript to run.</p></noscript>
+  <noscript><p style="padding:24px;color:#4A5273">Expense Tracker needs JavaScript to run.</p></noscript>
   <script type="module" src="app.js"></script>
 </body>
 </html>

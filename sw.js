@@ -1,13 +1,14 @@
 
 // Offline support: cache the app shell, serve it first, refresh in the background.
-const VERSION = 'et-v3';
+const VERSION = 'et-v7';
 const SHELL = [
-  './', './index.html', './app.css', './app.js', './store.js', './analytics.js', './charts.js', './icons.js', './categorize.js', './importer.js', './rates.js', './receipts.js', './xlsx.js',
+  './', './index.html', './app.css', './app.js', './store.js', './analytics.js', './charts.js', './icons.js', './categorize.js', './quick.js', './entry.js', './owed.js', './importui.js', './statement.js', './reader.js', './sheets.js', './rates.js', './receipts.js', './xlsx.js',
+  './display-500.woff', './display-700.woff',
   './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
 ];
  
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(SHELL).then(() => cache.addAll(['./pdf.min.mjs', './pdf.worker.min.mjs']).catch(() => {}))).then(() => self.skipWaiting()));
 });
  
 self.addEventListener('activate', (event) => {

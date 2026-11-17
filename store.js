@@ -1,4 +1,5 @@
 // Data layer: everything is kept in localStorage on this device only.
+import { repayPlan } from './owed.js';
 export const STORAGE_KEY = 'expense-tracker.v1';
 export const CURRENCIES = [
   { code: 'AED', name: 'UAE Dirham' },
@@ -90,6 +91,9 @@ function defaultState() {
     accounts: [],
     transfers: [],
     goals: [],
+    imports: [],              // one entry per bank-statement import, so a whole import can be undone
+    merchants: {},            // names the person has taught the app: "name|Expense" → category
+    owed: [],                 // money other people owe me: { person, amount, currency, date, note, txId, paid: [] }
     settings: {
       currency: guessCurrency(),
       homeCurrency: null,     // show everything converted into this currency (null = off)
@@ -130,6 +134,9 @@ class Store {
         accounts: parsed.accounts || [],
         transfers: parsed.transfers || [],
         goals: parsed.goals || [],
+        imports: parsed.imports || [],
+        merchants: parsed.merchants || {},
+        owed: parsed.owed || [],
       };
     } catch (e) {
       console.error('Could not read saved data', e);
@@ -232,6 +239,7 @@ class Store {
 
   eraseAllTransactions() {
     this.state.transactions = [];
+    this.state.imports = [];
     this.commit();
   }
 
@@ -323,6 +331,78 @@ class Store {
     return { added, duplicates };
   }
 
+  // Splits rows into new ones and ones already here (same day, type, category, amount, currency and text).
+  dedupeRows(rows) {
+    const counts = new Map();
+    for (const t of this.state.transactions) { const k = this.signature(t); counts.set(k, (counts.get(k) || 0) + 1); }
+    const fresh = [];
+    let duplicates = 0;
+    for (const r of rows) {
+      const k = this.signature(r);
+      const left = counts.get(k) || 0;
+      if (left > 0) { counts.set(k, left - 1); duplicates += 1; } else fresh.push(r);
+    }
+    return { fresh, duplicates };
+  }
+
+  // Adds a whole statement at once. Every row remembers which import it came from.
+  addBatch(rows, meta = {}) {
+    const id = uid();
+    const base = Date.now();
+    rows.forEach((row, i) => {
+      this.state.transactions.push({ id: uid(), createdAt: base + i, ...row, batch: id });
+      this.ensureCategoryQuiet(row.category, row.type);
+    });
+    this.state.imports.unshift({ id, at: base, count: rows.length, ...meta });
+    this.state.imports = this.state.imports.slice(0, 30);
+    this.commit();
+    return id;
+  }
+
+  undoImport(id) {
+    const before = this.state.transactions.length;
+    this.state.transactions = this.state.transactions.filter((t) => t.batch !== id);
+    this.state.imports = this.state.imports.filter((x) => x.id !== id);
+    this.commit();
+    return before - this.state.transactions.length;
+  }
+
+  // ---- money other people owe me
+  paidBackCategory() { this.ensureCategory('Paid back', 'Income'); return 'Paid back'; }
+  get owed() { return this.state.owed; }
+  addOwed({ person, amount, currency, date, note = '', txId = null }) {
+    const d = { id: uid(), createdAt: Date.now(), person: String(person).trim(), amount: Math.round(amount * 100) / 100, currency, date, note: String(note || '').trim(), txId, paid: [] };
+    this.state.owed.push(d);
+    this.commit();
+    return d;
+  }
+  updateOwed(id, changes) { const d = this.state.owed.find((x) => x.id === id); if (d) { Object.assign(d, changes); this.commit(); } }
+  deleteOwed(id) { const d = this.state.owed.find((x) => x.id === id) || null; this.state.owed = this.state.owed.filter((x) => x.id !== id); this.commit(); return d; }
+  restoreOwed(d) { if (d && !this.state.owed.some((x) => x.id === d.id)) { this.state.owed.push(d); this.commit(); } }
+  // Someone paid me back: marks off their oldest debts first. Returns what changed, so it can be undone.
+  repay(person, amount, { date, currency = null, txId = null } = {}) {
+    const plan = repayPlan(this.state.owed, person, amount, currency);
+    const before = {};
+    for (const part of plan.parts) {
+      const d = this.state.owed.find((x) => x.id === part.id);
+      before[d.id] = JSON.parse(JSON.stringify(d.paid || []));
+      d.paid = [...(d.paid || []), { date, amount: part.take, ...(txId ? { txId } : {}) }];
+    }
+    if (plan.parts.length) this.commit();
+    return { applied: Math.round((amount - plan.leftover) * 100) / 100, leftover: plan.leftover, before };
+  }
+  undoRepay(before) {
+    for (const [id, paid] of Object.entries(before || {})) { const d = this.state.owed.find((x) => x.id === id); if (d) d.paid = paid; }
+    this.commit();
+  }
+
+  get imports() { return this.state.imports; }
+  get merchants() { return this.state.merchants; }
+  learnMerchant(key, type, category) {
+    if (!key) return;
+    this.state.merchants[`${key}|${type}`] = category;
+  }
+
   ensureCategoryQuiet(name, type) {
     const exists = this.state.categories.some((c) => c.type === type && c.name.toLowerCase() === name.toLowerCase());
     if (!exists && name) {
@@ -352,7 +432,9 @@ class Store {
     for (const r of parsed.rules || []) {
       if (!ruleIds.has(r.id)) { this.state.rules.push(r); out.rules += 1; }
     }
-    for (const key of ['accounts', 'transfers', 'goals']) {
+    for (const [k, v] of Object.entries(parsed.merchants || {})) if (!(k in this.state.merchants)) this.state.merchants[k] = v;
+    for (const key of ['accounts', 'transfers', 'goals', 'owed']) {
+      if (!this.state[key]) this.state[key] = [];
       const have = new Set(this.state[key].map((x) => x.id));
       for (const x of parsed[key] || []) if (x && x.id && !have.has(x.id)) this.state[key].push(x);
     }
@@ -418,6 +500,7 @@ export function parseDate(text, dayFirst = true) {
   const raw = (text || '').trim();
   const token = raw.split(/[ T]/)[0];
   let m;
+  if ((m = raw.match(/^((?:19|20)\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$/))) return build(+m[1], +m[2], +m[3]); // 20260304 (BMO and others)
   if ((m = token.match(DATE_FORMATS[0]))) return build(+m[1], +m[2], +m[3]);
   if ((m = raw.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/))) return build(+m[1], +m[2], +m[3]);
   if ((m = token.match(DATE_FORMATS[1])) || (m = token.match(DATE_FORMATS[3]))) {

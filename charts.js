@@ -1,10 +1,6 @@
-// SVG charts in the metallic palette. All functions return an HTML string.
-export const PALETTE = ['#E6C76A', '#7F8694', '#F3E3A6', '#A8742A', '#D9DDE3', '#6A7180'];
-export const OTHER = '#3A3E46';
-export const GOLD = '#D4AF37', GOLD_BRIGHT = '#F5DF8E', GOLD_DEEP = '#9C7A22';
-export const SILVER = '#C9CDD5', SILVER_MUTED = '#8B919C', WARNING = '#E5484D', TRACK = 'rgba(255,255,255,0.10)';
-
-export const slotColor = (slot) => (slot === null || slot === undefined ? OTHER : PALETTE[slot % PALETTE.length]);
+// SVG charts. Colours come from CSS variables (--c1 … --c8, --good, --bad) so light and dark mode both work.
+export const OTHER = 'var(--c-other)';
+export const slotColor = (slot) => (slot === null || slot === undefined ? OTHER : `var(--c${(slot % 8) + 1})`);
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -18,11 +14,11 @@ export function donut(slices, { size = 136, thickness = 20, centerTop = '', cent
   const parts = slices.map((s) => {
     const len = total > 0 ? (s.total / total) * circ : 0;
     const dash = Math.max(len - gap, 0);
-    const el = `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${slotColor(s.slot)}" stroke-width="${thickness}" stroke-dasharray="${dash} ${circ - dash}" stroke-dashoffset="${-offset + circ / 4}" stroke-linecap="butt" class="donut-seg"></circle>`;
+    const el = `<circle cx="${c}" cy="${c}" r="${r}" fill="none" style="stroke:${slotColor(s.slot)}" stroke-width="${thickness}" stroke-dasharray="${dash} ${circ - dash}" stroke-dashoffset="${-offset + circ / 4}" stroke-linecap="butt" class="donut-seg"></circle>`;
     offset += len;
     return el;
   });
-  if (total === 0) parts.push(`<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${TRACK}" stroke-width="${thickness}"></circle>`);
+  if (total === 0) parts.push(`<circle cx="${c}" cy="${c}" r="${r}" fill="none" style="stroke:var(--surface-2)" stroke-width="${thickness}"></circle>`);
   return `<svg class="donut" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img">${parts.join('')}
     <text x="${c}" y="${c - 6}" text-anchor="middle" class="donut-top">${esc(centerTop)}</text>
     <text x="${c}" y="${c + 14}" text-anchor="middle" class="donut-main">${esc(centerMain)}</text></svg>`;
@@ -49,11 +45,11 @@ export function columns(points, { height = 190, formatY = (v) => String(v) } = {
   points.forEach((p, i) => {
     const cx = padL + groupW * i + groupW / 2;
     const ih = innerH * (p.income / niceMax), eh = innerH * (p.expense / niceMax);
-    out += `<rect x="${cx - barW - 1.5}" y="${y(p.income)}" width="${barW}" height="${ih}" rx="3" fill="url(#g-gold)" class="col"></rect>`;
-    out += `<rect x="${cx + 1.5}" y="${y(p.expense)}" width="${barW}" height="${eh}" rx="3" fill="url(#g-silver)" class="col"></rect>`;
+    out += `<rect x="${cx - barW - 1.5}" y="${y(p.income)}" width="${barW}" height="${ih}" rx="3" style="fill:var(--good)" class="col"></rect>`;
+    out += `<rect x="${cx + 1.5}" y="${y(p.expense)}" width="${barW}" height="${eh}" rx="3" style="fill:var(--c1)" class="col"></rect>`;
     out += `<text x="${cx}" y="${height - 6}" text-anchor="middle" class="axis">${esc(p.label)}</text>`;
   });
-  return out + defs() + '</svg>';
+  return out + '</svg>';
 }
 
 export function dailyBars(points, average, { height = 150, formatY = (v) => String(v) } = {}) {
@@ -69,11 +65,11 @@ export function dailyBars(points, average, { height = 150, formatY = (v) => Stri
   points.forEach((p, i) => {
     const x = padL + slot * i + (slot - barW) / 2;
     const hot = p.total > average * 2;
-    out += `<rect x="${x}" y="${y(p.total)}" width="${barW}" height="${innerH * (p.total / niceMax)}" rx="1.5" fill="${hot ? 'url(#g-gold)' : 'url(#g-silver-v)'}" class="col"></rect>`;
+    out += `<rect x="${x}" y="${y(p.total)}" width="${barW}" height="${innerH * (p.total / niceMax)}" rx="1.5" style="fill:${hot ? 'var(--c2)' : 'var(--line-strong)'}" class="col"></rect>`;
     if ([1, 8, 15, 22, 29].includes(p.day)) out += `<text x="${x + barW / 2}" y="${height - 6}" text-anchor="middle" class="axis">${p.day}</text>`;
   });
   if (average > 0) out += `<line x1="${padL}" x2="${w - padR}" y1="${y(average)}" y2="${y(average)}" class="avg"></line>`;
-  return out + defs() + '</svg>';
+  return out + '</svg>';
 }
 
 export function weekdayBars(points, { height = 140, formatY = (v) => String(v) } = {}) {
@@ -88,10 +84,10 @@ export function weekdayBars(points, { height = 140, formatY = (v) => String(v) }
   for (const f of [0, 0.5, 1]) { const t = f * niceMax; out += `<line x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}" class="grid"></line><text x="${w - padR + 6}" y="${y(t) + 4}" class="axis">${esc(formatY(t))}</text>`; }
   points.forEach((p, i) => {
     const x = padL + slot * i + (slot - barW) / 2;
-    out += `<rect x="${x}" y="${y(p.average)}" width="${barW}" height="${innerH * (p.average / niceMax)}" rx="3" fill="${p === busiest && p.average > 0 ? 'url(#g-gold)' : 'url(#g-silver-v)'}" class="col"></rect>`;
+    out += `<rect x="${x}" y="${y(p.average)}" width="${barW}" height="${innerH * (p.average / niceMax)}" rx="3" style="fill:${p === busiest && p.average > 0 ? 'var(--c1)' : 'var(--line-strong)'}" class="col"></rect>`;
     out += `<text x="${x + barW / 2}" y="${height - 6}" text-anchor="middle" class="axis">${esc(p.name)}</text>`;
   });
-  return out + defs() + '</svg>';
+  return out + '</svg>';
 }
 
 export function balanceBars(points, { height = 170, format = (v) => String(v) } = {}) {
@@ -109,31 +105,23 @@ export function balanceBars(points, { height = 170, format = (v) => String(v) } 
     const x = padL + slot * i + (slot - barW) / 2;
     const h = Math.abs(p.balance) * scale;
     const yTop = p.balance >= 0 ? zero - h : zero;
-    out += `<rect x="${x}" y="${yTop}" width="${barW}" height="${h}" rx="3" fill="${p.balance >= 0 ? 'url(#g-gold)' : WARNING}" class="col"></rect>`;
+    out += `<rect x="${x}" y="${yTop}" width="${barW}" height="${h}" rx="3" style="fill:${p.balance >= 0 ? 'var(--good)' : 'var(--bad)'}" class="col"></rect>`;
     const ly = p.balance >= 0 ? yTop - 4 : yTop + h + 10;
     out += `<text x="${x + barW / 2}" y="${ly}" text-anchor="middle" class="axis tiny">${esc(format(p.balance))}</text>`;
     out += `<text x="${x + barW / 2}" y="${height - 6}" text-anchor="middle" class="axis">${esc(p.label)}</text>`;
   });
-  return out + defs() + '</svg>';
+  return out + '</svg>';
 }
 
 export function ring(rate, { size = 68, text = '', sub = 'kept' } = {}) {
   const r = size / 2 - 5, c = size / 2, circ = 2 * Math.PI * r;
   const clamped = Math.max(Math.min(rate, 1), 0);
-  const color = rate >= 0 ? 'url(#g-gold)' : WARNING;
+  const color = rate >= 0 ? 'var(--good)' : 'var(--bad)';
   return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" class="ring" role="img">
-    <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${TRACK}" stroke-width="7"></circle>
-    <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${clamped * circ} ${circ}" transform="rotate(-90 ${c} ${c})" class="ring-fill"></circle>
-    <text x="${c}" y="${c + 1}" text-anchor="middle" class="ring-main" fill="${rate >= 0 ? GOLD : WARNING}">${esc(text)}</text>
-    <text x="${c}" y="${c + 13}" text-anchor="middle" class="ring-sub">${esc(sub)}</text>${defs()}</svg>`;
-}
-
-function defs() {
-  return `<defs>
-    <linearGradient id="g-gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${GOLD_BRIGHT}"/><stop offset="1" stop-color="${GOLD_DEEP}"/></linearGradient>
-    <linearGradient id="g-silver" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${SILVER}"/><stop offset="1" stop-color="${SILVER_MUTED}" stop-opacity="0.7"/></linearGradient>
-    <linearGradient id="g-silver-v" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E4E7EC"/><stop offset="1" stop-color="${SILVER_MUTED}"/></linearGradient>
-  </defs>`;
+    <circle cx="${c}" cy="${c}" r="${r}" fill="none" style="stroke:var(--surface-2)" stroke-width="7"></circle>
+    <circle cx="${c}" cy="${c}" r="${r}" fill="none" style="stroke:${color}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${clamped * circ} ${circ}" transform="rotate(-90 ${c} ${c})" class="ring-fill"></circle>
+    <text x="${c}" y="${c + 1}" text-anchor="middle" class="ring-main">${esc(text)}</text>
+    <text x="${c}" y="${c + 13}" text-anchor="middle" class="ring-sub">${esc(sub)}</text></svg>`;
 }
 
 function niceCeil(v) {
@@ -162,9 +150,11 @@ export function heatmap(daily, key, { size = 40, gap = 6 } = {}) {
     const pos = i + offset, col = pos % 7, row = Math.floor(pos / 7);
     const x = col * (size + gap), y = 22 + row * (size + gap);
     const ratio = max > 0 ? d.total / max : 0;
-    const fill = d.total === 0 ? TRACK : ratio > 0.66 ? GOLD : ratio > 0.33 ? GOLD_DEEP : 'rgba(212,175,55,0.35)';
-    const textColor = ratio > 0.66 ? '#0A0A0B' : '#C9CDD5';
-    cells.push(`<g class="hm-cell" data-day="${d.day}" style="cursor:pointer"><rect x="${x}" y="${y}" width="${size}" height="${size}" rx="10" fill="${fill}"/><text x="${x + size / 2}" y="${y + size / 2 + 4}" text-anchor="middle" font-size="12" fill="${textColor}" font-weight="600">${d.day}</text></g>`);
+    const level = d.total === 0 ? 0 : ratio > 0.66 ? 3 : ratio > 0.33 ? 2 : 1;
+    const fill = level === 0 ? 'var(--surface-2)' : 'var(--c1)';
+    const op = [1, 0.28, 0.6, 1][level];
+    const textColor = level === 3 ? '#FFFFFF' : 'var(--ink)';
+    cells.push(`<g class="hm-cell" data-day="${d.day}" style="cursor:pointer"><rect x="${x}" y="${y}" width="${size}" height="${size}" rx="10" style="fill:${fill};fill-opacity:${op}"/><text x="${x + size / 2}" y="${y + size / 2 + 4}" text-anchor="middle" font-size="12" style="fill:${textColor}" font-weight="600">${d.day}</text></g>`);
   });
   const rows = Math.ceil((daily.length + offset) / 7);
   const w = 7 * size + 6 * gap, h = 22 + rows * (size + gap) - gap;

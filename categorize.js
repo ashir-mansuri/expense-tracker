@@ -57,7 +57,7 @@ const KEYWORDS = [
   ['pgvcl', 'Utilities'], ['bescom', 'Utilities'], ['tata power', 'Utilities'], ['adani electricity', 'Utilities'], ['rundfunk', 'Utilities'], ['ard zdf', 'Utilities'],
   // phone & internet
   ['vodafone', 'Phone & Internet'], ['telekom', 'Phone & Internet'], ['o2', 'Phone & Internet'], ['congstar', 'Phone & Internet'],
-  ['jio', 'Phone & Internet'], ['airtel', 'Phone & Internet'], ['bsnl', 'Phone & Internet'], ['mobile', 'Phone & Internet'],
+  ['jio', 'Phone & Internet'], ['airtel', 'Phone & Internet'], ['bharti', 'Phone & Internet'], ['vi', 'Phone & Internet'], ['vodafone idea', 'Phone & Internet'], ['bsnl', 'Phone & Internet'], ['mobile', 'Phone & Internet'],
   ['internet', 'Phone & Internet'], ['broadband', 'Phone & Internet'], ['wifi', 'Phone & Internet'], ['recharge', 'Phone & Internet'],
   // health
   ['apotheke', 'Health'], ['pharmacy', 'Health'], ['chemist', 'Health'], ['apollo', 'Health'], ['medplus', 'Health'], ['hospital', 'Health'], ['clinic', 'Health'],
@@ -66,7 +66,7 @@ const KEYWORDS = [
   ['insurance', 'Insurance'], ['versicherung', 'Insurance'], ['allianz', 'Insurance'], ['tk', 'Insurance'], ['techniker', 'Insurance'], ['aok', 'Insurance'],
   ['barmer', 'Insurance'], ['lic', 'Insurance'], ['hdfc ergo', 'Insurance'], ['icici lombard', 'Insurance'], ['policy', 'Insurance'],
   // shopping
-  ['amazon', 'Shopping'], ['flipkart', 'Shopping'], ['myntra', 'Shopping'], ['ajio', 'Shopping'], ['meesho', 'Shopping'], ['ikea', 'Shopping'], ['zara', 'Shopping'],
+  ['zudio', 'Shopping'], ['trends', 'Shopping'], ['lifestyle', 'Shopping'], ['pantaloons', 'Shopping'], ['reliance digital', 'Shopping'], ['amazon', 'Shopping'], ['flipkart', 'Shopping'], ['myntra', 'Shopping'], ['ajio', 'Shopping'], ['meesho', 'Shopping'], ['ikea', 'Shopping'], ['zara', 'Shopping'],
   ['decathlon', 'Shopping'], ['saturn', 'Shopping'], ['media markt', 'Shopping'], ['mediamarkt', 'Shopping'], ['apple store', 'Shopping'],
   ['dm', 'Shopping'], ['rossmann', 'Shopping'], ['müller', 'Shopping'], ['primark', 'Shopping'], ['nykaa', 'Shopping'], ['croma', 'Shopping'], ['ebay', 'Shopping'],
   // entertainment
@@ -74,13 +74,42 @@ const KEYWORDS = [
   ['playstation', 'Entertainment'], ['xbox', 'Entertainment'], ['nintendo', 'Entertainment'], ['concert', 'Entertainment'], ['theatre', 'Entertainment'], ['theater', 'Entertainment'],
   // subscriptions
   ['netflix', 'Subscriptions'], ['spotify', 'Subscriptions'], ['prime video', 'Subscriptions'], ['amazon prime', 'Subscriptions'], ['disney', 'Subscriptions'],
-  ['hotstar', 'Subscriptions'], ['youtube', 'Subscriptions'], ['apple com bill', 'Subscriptions'], ['icloud', 'Subscriptions'], ['google one', 'Subscriptions'],
+  ['apple medi', 'Subscriptions'], ['apple media', 'Subscriptions'], ['appleservices', 'Subscriptions'], ['hotstar', 'Subscriptions'], ['youtube', 'Subscriptions'], ['apple com bill', 'Subscriptions'], ['icloud', 'Subscriptions'], ['google one', 'Subscriptions'],
   ['chatgpt', 'Subscriptions'], ['openai', 'Subscriptions'], ['claude', 'Subscriptions'], ['anthropic', 'Subscriptions'], ['microsoft 365', 'Subscriptions'], ['adobe', 'Subscriptions'],
   ['dropbox', 'Subscriptions'], ['gym', 'Subscriptions'], ['fitness', 'Subscriptions'], ['cult fit', 'Subscriptions'], ['subscription', 'Subscriptions'], ['abo', 'Subscriptions'],
+  // Canada
+  ['tim hortons', 'Food & Dining'], ['timmies', 'Food & Dining'], ['a&w', 'Food & Dining'], ['harveys', 'Food & Dining'], ['second cup', 'Food & Dining'], ['pizza pizza', 'Food & Dining'],
+  ['skipthedishes', 'Food & Dining'], ['skip the dishes', 'Food & Dining'], ['loblaws', 'Groceries'], ['no frills', 'Groceries'], ['nofrills', 'Groceries'], ['freshco', 'Groceries'],
+  ['sobeys', 'Groceries'], ['food basics', 'Groceries'], ['farm boy', 'Groceries'], ['superstore', 'Groceries'], ['save-on-foods', 'Groceries'], ['fortinos', 'Groceries'], ['zehrs', 'Groceries'],
+  ['t&t supermarket', 'Groceries'], ['shoppers drug mart', 'Health'], ['rexall', 'Health'], ['london drugs', 'Health'], ['pharmasave', 'Health'], ['jean coutu', 'Health'],
+  ['presto', 'Transport'], ['ttc', 'Transport'], ['go transit', 'Transport'], ['translink', 'Transport'], ['oc transpo', 'Transport'], ['via rail', 'Transport'],
+  ['petro-canada', 'Fuel'], ['petro canada', 'Fuel'], ['husky', 'Fuel'], ['ultramar', 'Fuel'], ['pioneer', 'Fuel'],
+  ['rogers', 'Phone & Internet'], ['telus', 'Phone & Internet'], ['fido', 'Phone & Internet'], ['koodo', 'Phone & Internet'], ['freedom mobile', 'Phone & Internet'], ['virgin plus', 'Phone & Internet'],
+  ['public mobile', 'Phone & Internet'], ['bell canada', 'Phone & Internet'], ['bell mobility', 'Phone & Internet'],
+  ['hydro one', 'Utilities'], ['toronto hydro', 'Utilities'], ['bc hydro', 'Utilities'], ['hydro-quebec', 'Utilities'], ['enbridge', 'Utilities'], ['fortisbc', 'Utilities'], ['enmax', 'Utilities'], ['epcor', 'Utilities'],
+  ['canadian tire', 'Shopping'], ['winners', 'Shopping'], ['homesense', 'Shopping'], ['marshalls', 'Shopping'], ['dollarama', 'Shopping'], ['best buy', 'Shopping'], ['staples', 'Shopping'], ['ikea', 'Shopping'], ['indigo', 'Shopping'],
+  ['sun life', 'Insurance'], ['manulife', 'Insurance'], ['desjardins', 'Insurance'], ['intact', 'Insurance'],
+  ['abm', 'Cash Withdrawal'], ['monthly account fee', 'Fees & Charges'], ['overdraft', 'Fees & Charges'], ['nsf fee', 'Fees & Charges'], ['payroll', 'Income'], ['direct deposit', 'Income'],
+  // everyday words, as people type them
+  ['chai', 'Food & Dining'], ['tea', 'Food & Dining'], ['lunch', 'Food & Dining'], ['dinner', 'Food & Dining'], ['breakfast', 'Food & Dining'], ['snack', 'Food & Dining'], ['snacks', 'Food & Dining'],
+  ['samosa', 'Food & Dining'], ['biryani', 'Food & Dining'], ['pizza', 'Food & Dining'], ['burger', 'Food & Dining'], ['thali', 'Food & Dining'], ['meal', 'Food & Dining'], ['tiffin', 'Food & Dining'],
+  ['juice', 'Food & Dining'], ['lassi', 'Food & Dining'], ['dosa', 'Food & Dining'], ['idli', 'Food & Dining'], ['vada pav', 'Food & Dining'], ['pav bhaji', 'Food & Dining'], ['ice cream', 'Food & Dining'],
+  ['bakery', 'Food & Dining'], ['canteen', 'Food & Dining'], ['dhaba', 'Food & Dining'], ['maggi', 'Food & Dining'], ['momos', 'Food & Dining'], ['sandwich', 'Food & Dining'], ['chaat', 'Food & Dining'],
+  ['pani puri', 'Food & Dining'], ['cold drink', 'Food & Dining'], ['eating out', 'Food & Dining'], ['takeaway', 'Food & Dining'],
+  ['grocery', 'Groceries'], ['groceries', 'Groceries'], ['vegetables', 'Groceries'], ['veggies', 'Groceries'], ['sabzi', 'Groceries'], ['sabji', 'Groceries'], ['fruits', 'Groceries'], ['milk', 'Groceries'],
+  ['kirana', 'Groceries'], ['dairy', 'Groceries'], ['eggs', 'Groceries'],
+  ['auto', 'Transport'], ['rickshaw', 'Transport'], ['cab', 'Transport'], ['taxi', 'Transport'], ['parking', 'Transport'], ['toll', 'Transport'], ['bike taxi', 'Transport'], ['train ticket', 'Transport'], ['bus ticket', 'Transport'],
+  ['cng', 'Fuel'], ['electricity', 'Utilities'], ['light bill', 'Utilities'], ['current bill', 'Utilities'], ['water bill', 'Utilities'], ['gas bill', 'Utilities'], ['lpg', 'Utilities'], ['cylinder', 'Utilities'],
+  ['data pack', 'Phone & Internet'], ['postpaid', 'Phone & Internet'], ['prepaid', 'Phone & Internet'],
+  ['medicine', 'Health'], ['medicines', 'Health'], ['checkup', 'Health'], ['physio', 'Health'],
+  ['clothes', 'Shopping'], ['shoes', 'Shopping'], ['shirt', 'Shopping'], ['jeans', 'Shopping'], ['dress', 'Shopping'],
+  ['movie', 'Entertainment'], ['movies', 'Entertainment'], ['film', 'Entertainment'], ['outing', 'Entertainment'],
+  ['tuition', 'Education'], ['stationery', 'Education'], ['exam fee', 'Education'], ['gift', 'Gifts & Donations'], ['donation', 'Gifts & Donations'], ['charity', 'Gifts & Donations'],
+  ['fine', 'Fees & Charges'], ['penalty', 'Fees & Charges'], ['late fee', 'Fees & Charges'],
   // travel
   ['airline', 'Travel'], ['lufthansa', 'Travel'], ['indigo', 'Travel'], ['air india', 'Travel'], ['ryanair', 'Travel'], ['easyjet', 'Travel'], ['emirates', 'Travel'],
   ['booking com', 'Travel'], ['airbnb', 'Travel'], ['makemytrip', 'Travel'], ['goibibo', 'Travel'], ['expedia', 'Travel'], ['flight', 'Travel'], ['flug', 'Travel'],
-  ['hostel', 'Travel'], ['oyo', 'Travel'], ['trivago', 'Travel'],
+  ['hostel', 'Travel'], ['holiday', 'Travel'], ['holidays', 'Travel'], ['tours', 'Travel'], ['travels', 'Travel'], ['kerala hol', 'Travel'], ['oyo', 'Travel'], ['trivago', 'Travel'],
   // education
   ['udemy', 'Education'], ['coursera', 'Education'], ['university', 'Education'], ['universität', 'Education'], ['school', 'Education'], ['college', 'Education'],
   ['tuition', 'Education'], ['semester', 'Education'], ['course', 'Education'], ['book', 'Education'], ['buch', 'Education'],
@@ -103,8 +132,28 @@ function findCategory(categories, name, type) {
     || categories.find((c) => c.type === type && (c.name.toLowerCase().includes(n.split(' ')[0]) || n.includes(c.name.toLowerCase())));
 }
 
-// Index of the person's own history, built once per call site.
-export function buildIndex(transactions) {
+// Keywords that are often something else ("hotel" can be a restaurant, "lab" a school). Suggestions from these are marked "check".
+const WEAK = new Set(['hotel', 'bar', 'bus', 'lab', 'pg', 'dm', 'tk', 'abo', 'mobile', 'book', 'course', 'cash', 'gas', 'water', 'metro', 'ola', 'bolt', 'fee', 'gym', 'vi', 'trends', 'bp', 'doctor', 'family']);
+
+// What the payer typed as the UPI note ("Food", "Rent", …) → a category name.
+const NOTE_HINTS = [
+  [/\b(food|lunch|dinner|breakfast|snacks?|tea|coffee|chai|meal|biryani|pizza)\b/i, 'Food & Dining'],
+  [/\b(family|home|house|ghar|mom|dad|mummy|papa|brother|sister|wife|husband|expenses)\b/i, 'Family'],
+  [/\b(rent|room)\b/i, 'Rent'],
+  [/\b(grocer\w*|vegetables?|fruits?|milk|kirana)\b/i, 'Groceries'],
+  [/\b(petrol|diesel|fuel)\b/i, 'Fuel'],
+  [/\b(bill|bills|electricity|light bill|water|gas)\b/i, 'Utilities'],
+  [/\b(recharge|mobile|internet|wifi|broadband)\b/i, 'Phone & Internet'],
+  [/\b(medicine|medical|doctor|hospital|health)\b/i, 'Health'],
+  [/\b(travel|ticket|trip|flight|train|bus)\b/i, 'Travel'],
+  [/\b(gift|donation|charity|zakat|sadaqa)\b/i, 'Gifts & Donations'],
+  [/\b(fees?|school|tuition|college|course|books?)\b/i, 'Education'],
+  [/\b(shopping|clothes|dress)\b/i, 'Shopping'],
+];
+
+
+// Index of the person's own history (and what they have taught the app), built once per call site.
+export function buildIndex(transactions, learned = {}) {
   const exact = new Map();   // normalised description → stats
   const byToken = new Map(); // token → Map(category|type → count)
   for (const t of transactions) {
@@ -123,17 +172,15 @@ export function buildIndex(transactions) {
       m.set(ck, (m.get(ck) || 0) + 1);
     }
   }
-  return { exact, byToken };
+  return { exact, byToken, learned: new Map(Object.entries(learned || {})) };
 }
 
 const best = (entries) => [...entries].sort((a, b) => b[1] - a[1])[0];
 
-// Returns { category, type, amount, source } or null. `source` is 'history', 'similar' or 'keyword'.
-export function suggest(desc, index, categories, { type = null } = {}) {
+function fromHistory(desc, index, type) {
   const key = normalise(desc);
   if (!key) return null;
   const typeOk = (ck) => !type || ck.endsWith('|' + type);
-
   const e = index.exact.get(key);
   if (e) {
     const hit = best([...e.counts.entries()].filter(([ck]) => typeOk(ck)));
@@ -145,7 +192,6 @@ export function suggest(desc, index, categories, { type = null } = {}) {
       return { category, type: t, amount, source: 'history' };
     }
   }
-
   // partial match: score categories by the tokens they share with past descriptions
   const score = new Map();
   for (const w of key.split(' ')) {
@@ -159,14 +205,45 @@ export function suggest(desc, index, categories, { type = null } = {}) {
     const [category, t] = hit[0].split('|');
     return { category, type: t, amount: null, source: 'similar' };
   }
+  return null;
+}
 
-  // keyword list, mapped onto the person's own category names. Whole words only, so "ola" never matches "cola".
-  const padded = ' ' + (desc || '').toLowerCase().replace(/[^a-z0-9äöüß]+/g, ' ').trim() + ' ';
+// keyword list, mapped onto the person's own category names. Whole words only, so "ola" never matches "cola".
+function fromKeywords(text, categories, type) {
+  const padded = ' ' + (text || '').toLowerCase().replace(/[^a-z0-9äöüß]+/g, ' ').trim() + ' ';
   for (const [kw, name, kType = 'Expense'] of KEYWORDS) {
     if (type && kType !== type) continue;
     if (!padded.includes(' ' + kw + ' ')) continue;
     const cat = findCategory(categories, name, kType);
-    if (cat) return { category: cat.name, type: kType, amount: null, source: 'keyword' };
+    if (cat) return { category: cat.name, type: kType, amount: null, source: 'keyword', weak: WEAK.has(kw) };
   }
+  return null;
+}
+
+// Returns { category, type, amount, source } or null. `source` is 'history', 'similar' or 'keyword'.
+export function suggest(desc, index, categories, { type = null } = {}) {
+  return fromHistory(desc, index, type) || fromKeywords(desc, categories, type);
+}
+
+export const learnKey = (key, type) => `${key}|${type}`;
+
+// Everything we know about one statement line. `row` comes from statement.js (name, note, kind, key, type).
+// Order of trust: what you taught me → your own history → the type of payment → the note the payer typed → the keyword list.
+export function categorise(row, index, categories) {
+  const type = row.type;
+  const taught = index.learned.get(learnKey(row.key, type));
+  if (taught && categories.some((c) => c.type === type && c.name === taught)) return { category: taught, type, source: 'taught' };
+  const hist = fromHistory(row.name, index, type);
+  if (hist && categories.some((c) => c.type === type && c.name === hist.category)) return hist;
+  if (row.kind === 'cash' && type === 'Expense') { const c = findCategory(categories, 'Cash Withdrawal', type); if (c) return { category: c.name, type, source: 'kind' }; }
+  if (row.kind === 'charge' && type === 'Expense') { const c = findCategory(categories, 'Fees & Charges', type); if (c) return { category: c.name, type, source: 'kind' }; }
+  if (row.kind === 'interest' && type === 'Income') { const c = findCategory(categories, 'Investments', type) || findCategory(categories, 'Interest', type); if (c) return { category: c.name, type, source: 'kind' }; }
+  if (row.note && type === 'Expense') {
+    for (const [re, name] of NOTE_HINTS) {
+      if (re.test(row.note)) { const c = findCategory(categories, name, type); if (c) return { category: c.name, type, source: 'note' }; }
+    }
+  }
+  const kw = fromKeywords(`${row.name} ${row.note || ''}`, categories, type);
+  if (kw) return kw;
   return null;
 }

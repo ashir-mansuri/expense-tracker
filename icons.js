@@ -37,6 +37,8 @@ const P = {
   down: '<path d="M7 7l10 10M17 9v8H9"/>',
   leaf: '<path d="M4 20c0-9 6-14 16-14-1 9-6 14-13 14"/><path d="M4 20c4-5 7-7 11-9"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0013 0M12 18v3"/>',
+  palette: '<path d="M12 3a9 9 0 100 18c1.3 0 2-.8 2-1.7 0-.5-.3-.9-.5-1.3-.3-.4-.5-.8-.5-1.3 0-.9.7-1.7 1.7-1.7H17a4 4 0 004-4c0-4-4-8-9-8z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="15" cy="7" r="1"/>',
   sparkles: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM5 17l.8 2.2L8 20l-2.2.8L5 23l-.8-2.2L2 20l2.2-.8z"/>',
   chevL: '<path d="M15 5l-7 7 7 7"/>',
   chevR: '<path d="M9 5l7 7-7 7"/>',
@@ -55,6 +57,7 @@ const P = {
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
   check: '<path d="M5 12l5 5L20 7"/>',
   tray: '<path d="M4 4h16v16H4z"/><path d="M4 14h5l1 2h4l1-2h5"/>',
+  import: '<path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/><path d="M5 15v3a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-3"/>',
   arrowIn: '<path d="M17 7 7 17M7 9v8h8"/>',
   arrowOut: '<path d="M7 17 17 7M9 7h8v8"/>',
 };

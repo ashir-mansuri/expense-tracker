@@ -6,7 +6,7 @@ export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', '
 export const MONTHS_SHORT = MONTHS.map((m) => m.slice(0, 3));
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 export const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-export const COLOURED_LIMIT = 6;
+export const COLOURED_LIMIT = 8;
 
 export const keyOf = (iso) => ({ year: +iso.slice(0, 4), month: +iso.slice(5, 7) });
 export const keyEq = (a, b) => a.year === b.year && a.month === b.month;
@@ -455,6 +455,7 @@ export function tiles(ins, currency) {
 
 // Icon name for a category from words in its name (mirrors the iOS version).
 const ICON_TABLE = [
+  ['paid back', 'people'], ['lent', 'people'],
   ['rent', 'home'], ['mortgage', 'home'], ['insurance', 'shield'], ['radio', 'radio'], ['tele', 'phone'],
   ['phone', 'phone'], ['internet', 'phone'], ['grocer', 'cart'], ['vending', 'cup'], ['coffee', 'cup'],
   ['food', 'food'], ['dining', 'food'], ['restaurant', 'food'], ['entertain', 'game'], ['subscription', 'play'],
