@@ -169,7 +169,7 @@ Everything sits in one flat folder, so it can be uploaded to GitHub with *Add fi
 | `importui.js`, `statement.js`, `reader.js`, `xlsx.js` | Bank statement import |
 | `analytics.js`, `charts.js`, `categorize.js`, `rates.js`, `receipts.js`, `sheets.js`, `icons.js` | Insights, charts, categories, exchange rates, receipt photos, bottom sheets, icons |
 | `prepaint.js` | Sets the colours before the first paint so there is no flash |
-| `sw.js` | Lets the app work without internet. Its version is `et-v11`; raise it whenever any file changes so phones pick up the new copy |
+| `sw.js` | Lets the app work without internet. Its version is `et-v12`; raise it whenever any file changes so phones pick up the new copy |
 | `manifest.webmanifest`, `icon-*.png`, `apple-touch-icon.png` | What the phone needs to install it |
 | `display-500.woff`, `display-700.woff` | Fonts for the Indigo and Gold looks |
 | `inter-400.woff` to `inter-700.woff`, `inter-license.txt` | Inter, the text font of the Cobalt and Obsidian looks |
@@ -179,4 +179,4 @@ Everything sits in one flat folder, so it can be uploaded to GitHub with *Add fi
 
 Credits: pdf.js 6.2.108 by Mozilla (Apache License 2.0, https://github.com/mozilla/pdf.js). Inter by Rasmus Andersson and The Inter Project Authors (SIL Open Font License 1.1, see `inter-license.txt`). JetBrains Mono by JetBrains (SIL Open Font License 1.1, see `jetbrains-mono-license.txt`). Everything else is original to this project.
 
-Version 3.5 (web).
+Version 3.5.1 (web). Fixes the Cancel and Save buttons on the Edit and New transaction screens, which could not be tapped on an iPhone in the Cobalt and Obsidian looks, and tightens the commas in the large Obsidian balance.
