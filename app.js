@@ -262,6 +262,8 @@ function heroMoney(v) {
 }
 
 // The Obsidian headline figure is monospaced, so its width is predictable: shrink it until it fits inside its card.
+// Obsidian sets amounts in a fixed-width font, which leaves a wide gap around commas and dots; in the big figure they are drawn tighter
+const heroText = (t) => (isObsidian() ? esc(t).replace(/[,.]/g, '<span class="sep">$&</span>') : esc(t));
 function heroFit(text, max) {
   const room = Math.max(160, ($('#app')?.clientWidth || window.innerWidth) - 80);
   return Math.max(20, Math.min(max, Math.floor(room / (text.length * 0.6))));
@@ -285,13 +287,13 @@ function heroHTML(s) {
     const bt = heroMoney(s.balance);
     const bs = isObsidian() ? heroFit(bt, 40) : bt.length <= 8 ? 40 : bt.length <= 10 ? 34 : bt.length <= 12 ? 30 : 25;
     return `<div class="hero"><div class="hero-label">Total balance</div>
-      <div class="hero-figure num ${s.balance < 0 ? 'neg' : ''}" style="font-size:${bs}px">${esc(bt)}</div>
+      <div class="hero-figure num ${s.balance < 0 ? 'neg' : ''}" style="font-size:${bs}px">${heroText(bt)}</div>
       <div class="hero-stats"><div><span class="lbl">Income</span><span class="val num in">+${esc(money(s.income))}</span></div><div><span class="lbl">Spent</span><span class="val num out">−${esc(money(s.expense))}</span></div></div>
       ${bar}</div>`;
   }
   const fs = isObsidian() ? heroFit(text, 38) : isPremium() ? Math.round(size * 0.82) : size;
   return `<div class="hero"><div class="hero-label">Total spent</div>
-    <div class="hero-figure num" style="font-size:${fs}px">${esc(text)}</div><div class="hero-sub">${sub}</div>
+    <div class="hero-figure num" style="font-size:${fs}px">${heroText(text)}</div><div class="hero-sub">${sub}</div>
     ${bar}</div>`;
 }
 
@@ -694,7 +696,7 @@ function renderSettings() {
     <div><div class="section-title"><span>About</span></div><div class="rows">
       ${counts.map((x) => `<div class="row setting"><span class="grow">${x.c.code} transactions</span><span class="value num">${x.n}</span></div>`).join('')}
       <div class="row setting"><span class="grow">All transactions</span><span class="value num">${store.transactions.length}</span></div>
-      <div class="row setting"><span class="grow">Version</span><span class="value">3.5 (web)</span></div></div>
+      <div class="row setting"><span class="grow">Version</span><span class="value">3.5.1 (web)</span></div></div>
       <p class="footer-note">Everything is stored on this device only. Statements are read on this phone and never uploaded. The only request the app makes is for exchange rates, and only when a home currency is set.</p></div>
   </div></div>`;
 }
