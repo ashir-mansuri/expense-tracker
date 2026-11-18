@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://open.er-api.com https://api.frankfurter.app; worker-src 'self' blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Expense Tracker</title>
   <meta name="description" content="Personal expense tracker: bank statement import, budgets, insights and monthly reports. Your data stays on your phone.">
   <meta name="theme-color" content="#171E4A">
@@ -14,15 +15,7 @@
   <link rel="icon" href="icon-192.png">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="preload" href="display-700.woff" as="font" type="font/woff" crossorigin>
-  <script>
-    /* Apply the saved colours before the first paint, so nothing flashes. */
-    try {
-      var s = (JSON.parse(localStorage.getItem('expense-tracker.v1') || '{}').settings) || {};
-      var r = document.documentElement;
-      if (s.look === 'gold') { r.dataset.look = 'gold'; document.querySelector('meta[name="theme-color"]').content = '#141416'; }
-      if (s.theme === 'light' || s.theme === 'dark') r.dataset.theme = s.theme;
-    } catch (e) {}
-  </script>
+  <script src="prepaint.js"></script>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>

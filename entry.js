@@ -32,6 +32,14 @@ function context() {
 }
 
 function parse() {
+  try { read(); } catch (err) {
+    console.error('Could not read the words', err);
+    kind = 'none'; items = [];
+    hint = 'I could not make sense of that. Try something short like "chai 20", or paste the whole bank message.';
+  }
+}
+
+function read() {
   const r = readText(draft, context());
   kind = r.kind;
   hint = r.hint || '';
@@ -109,7 +117,7 @@ function previewHTML() {
 export function entryHTML() {
   if (draft) parse();
   return `<section class="card entry" id="entry"><div class="card-head"><h2>Add by typing</h2>${draft ? `<button class="link-btn" style="width:auto" data-e="clear">Clear</button>` : ''}</div>
-    <textarea id="entry-text" rows="1" placeholder="Type “250 chai” or paste a bank SMS" aria-label="Add by typing or pasting" autocapitalize="sentences" autocomplete="off" spellcheck="false">${esc(draft)}</textarea>
+    <textarea id="entry-text" rows="1" placeholder="Type “250 chai” or paste an SMS" aria-label="Add by typing or pasting" autocapitalize="sentences" autocomplete="off" spellcheck="false">${esc(draft)}</textarea>
     <div id="entry-preview">${previewHTML()}</div></section>`;
 }
 

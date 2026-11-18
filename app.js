@@ -5,9 +5,10 @@ import { icon } from './icons.js';
 import { buildIndex, suggest } from './categorize.js';
 import { initImport, openImport } from './importui.js';
 import { refreshRates, convert, canConvert, hasRates } from './rates.js';
-import { putReceipt, getReceipt, deleteReceipt, shrinkImage, exportReceipts, importReceipts, receiptIds } from './receipts.js';
+import { putReceipt, getReceipt, deleteReceipt, shrinkImage, exportReceipts, importReceipts, receiptIds, setReceiptKey, convertReceipts, clearReceipts } from './receipts.js';
 import { buildWorkbook, excelDate } from './xlsx.js';
 import { initEntry, entryHTML } from './entry.js';
+import { sealText, openText, looksEncrypted, available as vaultAvailable } from './vault.js';
 import { groupPeople, totalsByCurrency, repayPlan, suggestRepayments, reminderText, leftOf, paidOf, personKey } from './owed.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -56,11 +57,11 @@ const ui = {
 };
 
 // ---------- helpers
-function dialog({ title = '', message = '', buttons = [] }) {
+function dialog({ title = '', message = '', buttons = [], stack = false }) {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'modal-backdrop';
-    wrap.innerHTML = `<div class="modal" role="alertdialog">${title ? `<h3>${esc(title)}</h3>` : ''}<p>${esc(message)}</p><div class="modal-actions">${buttons.map((b, i) => `<button class="${b.danger ? 'danger' : b.primary ? 'primary' : ''}" data-i="${i}">${esc(b.label)}</button>`).join('')}</div></div>`;
+    wrap.innerHTML = `<div class="modal" role="alertdialog">${title ? `<h3>${esc(title)}</h3>` : ''}<p>${esc(message)}</p><div class="modal-actions${stack ? ' stack' : ''}">${buttons.map((b, i) => `<button class="${b.danger ? 'danger' : b.primary ? 'primary' : ''}" data-i="${i}">${esc(b.label)}</button>`).join('')}</div></div>`;
     document.body.appendChild(wrap);
     requestAnimationFrame(() => wrap.classList.add('show'));
     wrap.addEventListener('click', (e) => {
@@ -76,6 +77,49 @@ function dialog({ title = '', message = '', buttons = [] }) {
 const notify = (message, title = '') => dialog({ title, message, buttons: [{ label: 'OK', value: true, primary: true }] });
 const ask = (message, { title = '', confirmText = 'Delete', danger = true } = {}) =>
   dialog({ title, message, buttons: [{ label: 'Cancel', value: false }, { label: confirmText, value: true, danger, primary: !danger }] });
+
+// Asks for a password inside a small dialog. `check` may refuse it (returning a message), and the dialog stays open so the person can try again.
+function askPassword({ title, message, confirmText = 'Continue', again = false, check = null }) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-backdrop';
+    const field = (id, ph, ac) => `<input type="password" id="${id}" placeholder="${ph}" autocomplete="${ac}" autocapitalize="off" autocorrect="off" spellcheck="false">`;
+    wrap.innerHTML = `<div class="modal" role="dialog"><h3>${esc(title)}</h3><p>${esc(message)}</p>
+      ${field('pw1', 'Password', again ? 'new-password' : 'current-password')}${again ? field('pw2', 'Type it again', 'new-password') : ''}
+      <p class="modal-err" id="pw-err" role="alert"></p>
+      <div class="modal-actions"><button data-i="0">Cancel</button><button class="primary" data-i="1">${esc(confirmText)}</button></div></div>`;
+    document.body.appendChild(wrap);
+    requestAnimationFrame(() => { wrap.classList.add('show'); wrap.querySelector('#pw1').focus(); });
+    const err = wrap.querySelector('#pw-err');
+    const close = (v) => { wrap.classList.remove('show'); setTimeout(() => wrap.remove(), 200); resolve(v); };
+    let busy = false;
+    const submit = async () => {
+      if (busy) return;
+      const a = wrap.querySelector('#pw1').value;
+      if (again) {
+        if (a.length < 8) { err.textContent = 'Use at least 8 characters.'; return; }
+        if (a !== wrap.querySelector('#pw2').value) { err.textContent = 'The two passwords are not the same.'; return; }
+      } else if (!a) { err.textContent = 'Type the password.'; return; }
+      busy = true; err.textContent = 'Checking…';
+      const go = wrap.querySelector('button.primary'); go.disabled = true;
+      await new Promise((r) => setTimeout(r, 30)); // let the screen show "Checking…" before the heavy work starts
+      const problem = check ? await check(a) : null;
+      busy = false; go.disabled = false;
+      if (problem) { err.textContent = problem; wrap.querySelector('#pw1').select(); return; }
+      close(a);
+    };
+    wrap.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-i]');
+      if (b && b.dataset.i === '1') submit();
+      else if ((b && b.dataset.i === '0') || e.target === wrap) { if (!busy) close(null); }
+    });
+    wrap.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  });
+}
+
+// Anything that opens a sheet, a dialog or the import screen first clears an old message, so "Undo" never sits on top of its buttons.
+const OPENERS = new Set(['add', 'edit', 'import-open', 'import-backup', 'export-backup', 'export-csv', 'export-xlsx', 'erase', 'add-owed', 'edit-owed', 'repay-open', 'add-goal', 'edit-goal', 'add-account', 'edit-account', 'add-category', 'edit-category', 'add-transfer', 'view-transfer', 'make-rule', 'toggle-pin', 'toggle-encrypt']);
+function hideToast() { clearTimeout(toast.t); toast.fn = null; $('#toast').classList.remove('show'); }
 
 function toast(text, action = null) {
   const el = $('#toast');
@@ -115,8 +159,17 @@ function monthNav(key, scope) {
   </div>`;
 }
 
+// iPhone and iPad word things differently from Android (Safari, Files and iCloud Drive versus the browser, Downloads and a cloud drive).
+const onIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const LOOKS = ['indigo', 'gold', 'cobalt', 'obsidian'];
+const lookOf = () => (LOOKS.includes(store.settings.look) ? store.settings.look : 'indigo');
+const isObsidian = () => lookOf() === 'obsidian';
+// the two newer looks share the "Exp Tracker" title and the Total balance card
+const isPremium = () => lookOf() === 'cobalt' || lookOf() === 'obsidian';
+
 // The dark band at the top of every screen: title, actions and (on Home) the month and its headline figure.
 function mast(title, { left = '', actions = '', nav = '', hero = '', swipe = false } = {}) {
+  if (isPremium() && title === 'Expenses') title = 'Exp Tracker';
   return `<header class="mast" ${swipe ? 'data-swipe="month"' : ''}><div class="mast-top">${left}<h1>${esc(title)}</h1><div class="mast-actions">${actions}</div></div>${nav}${hero}</header>`;
 }
 function currencyBtn() {
@@ -208,6 +261,12 @@ function heroMoney(v) {
   try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur(), maximumFractionDigits: big ? 0 : 2, minimumFractionDigits: big ? 0 : 2 }).format(v); } catch { return money(v); }
 }
 
+// The Obsidian headline figure is monospaced, so its width is predictable: shrink it until it fits inside its card.
+function heroFit(text, max) {
+  const room = Math.max(160, ($('#app')?.clientWidth || window.innerWidth) - 80);
+  return Math.max(20, Math.min(max, Math.floor(room / (text.length * 0.6))));
+}
+
 function heroHTML(s) {
   const text = heroMoney(s.expense);
   const size = text.length <= 8 ? 46 : text.length <= 10 ? 40 : text.length <= 12 ? 35 : 30;
@@ -220,10 +279,20 @@ function heroHTML(s) {
   const sub = s.count === 0 ? '<span>Nothing recorded this month</span>'
     : s.income > 0 ? `<span>${money(s.income)} came in</span><span class="${s.balance >= 0 ? 'good' : 'over'}">${s.balance >= 0 ? money(s.balance) + ' left' : money(-s.balance) + ' over'}</span>`
       : '<span>No income recorded</span>';
+  const bar = `${total > 0 ? `<div class="monthbar grow" role="img" aria-label="Spending by category">${segs}</div>` : ''}${legend ? `<div class="monthbar-legend">${legend}</div>` : ''}`;
+  if (isPremium() && s.count > 0 && s.income > 0) {
+    // Total balance: what came in minus what went out this month, with the two parts underneath
+    const bt = heroMoney(s.balance);
+    const bs = isObsidian() ? heroFit(bt, 40) : bt.length <= 8 ? 40 : bt.length <= 10 ? 34 : bt.length <= 12 ? 30 : 25;
+    return `<div class="hero"><div class="hero-label">Total balance</div>
+      <div class="hero-figure num ${s.balance < 0 ? 'neg' : ''}" style="font-size:${bs}px">${esc(bt)}</div>
+      <div class="hero-stats"><div><span class="lbl">Income</span><span class="val num in">+${esc(money(s.income))}</span></div><div><span class="lbl">Spent</span><span class="val num out">−${esc(money(s.expense))}</span></div></div>
+      ${bar}</div>`;
+  }
+  const fs = isObsidian() ? heroFit(text, 38) : isPremium() ? Math.round(size * 0.82) : size;
   return `<div class="hero"><div class="hero-label">Total spent</div>
-    <div class="hero-figure num" style="font-size:${size}px">${esc(text)}</div><div class="hero-sub">${sub}</div>
-    ${total > 0 ? `<div class="monthbar grow" role="img" aria-label="Spending by category">${segs}</div>` : ''}
-    ${legend ? `<div class="monthbar-legend">${legend}</div>` : ''}</div>`;
+    <div class="hero-figure num" style="font-size:${fs}px">${esc(text)}</div><div class="hero-sub">${sub}</div>
+    ${bar}</div>`;
 }
 
 function owedTeaser() {
@@ -574,7 +643,7 @@ function renderSettings() {
       <button class="pill-btn" data-action="undo-import" data-id="${im.id}" style="color:var(--bad)">Undo</button></div>`).join('');
   const taught = Object.keys(store.merchants).length;
   const theme = st.theme || 'auto';
-  const look = st.look === 'gold' ? 'gold' : 'indigo';
+  const look = lookOf();
 
   return mast('More', { actions: currencyBtn() }) + `<div class="screen"><div class="list">
     <div><div class="section-title"><span>Bank statements</span></div><div class="rows">
@@ -607,10 +676,11 @@ function renderSettings() {
       <p class="footer-note">Due entries are added when you open the app. Insights also spots repeating payments you have not automated yet.</p></div>
 
     <div><div class="section-title"><span>Appearance and security</span></div><div class="rows">
-      <label class="row setting">${icon('palette')}<span class="grow">Colours</span><select data-action="set-look"><option value="indigo" ${look === 'indigo' ? 'selected' : ''}>Indigo (new)</option><option value="gold" ${look === 'gold' ? 'selected' : ''}>Black and gold (classic)</option></select></label>
-      ${look === 'gold' ? '' : `<label class="row setting">${icon('sparkles')}<span class="grow">Appearance</span><select data-action="set-theme"><option value="auto" ${theme === 'auto' ? 'selected' : ''}>Match my phone</option><option value="light" ${theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${theme === 'dark' ? 'selected' : ''}>Dark</option></select></label>`}
-      <label class="row setting">${icon('lock')}<span class="grow">Require a PIN to open</span><input type="checkbox" data-action="toggle-pin" ${st.pinHash ? 'checked' : ''}></label></div>
-      <p class="footer-note">A 4–6 digit code asked every time the app opens. There is no way to recover a forgotten PIN; you would have to clear the app's data.</p></div>
+      <label class="row setting">${icon('palette')}<span class="grow">Colours</span><select data-action="set-look"><option value="indigo" ${look === 'indigo' ? 'selected' : ''}>Indigo (new)</option><option value="cobalt" ${look === 'cobalt' ? 'selected' : ''}>Alabaster & Cobalt</option><option value="obsidian" ${look === 'obsidian' ? 'selected' : ''}>Obsidian & Emerald</option><option value="gold" ${look === 'gold' ? 'selected' : ''}>Black and gold (classic)</option></select></label>
+      ${look !== 'indigo' ? '' : `<label class="row setting">${icon('sparkles')}<span class="grow">Appearance</span><select data-action="set-theme"><option value="auto" ${theme === 'auto' ? 'selected' : ''}>Match my phone</option><option value="light" ${theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${theme === 'dark' ? 'selected' : ''}>Dark</option></select></label>`}
+      <label class="row setting">${icon('lock')}<span class="grow">Require a PIN to open</span><input type="checkbox" data-action="toggle-pin" ${st.pinHash ? 'checked' : ''}></label>
+      ${vaultAvailable() ? `<label class="row setting">${icon('shield')}<span class="grow">Lock saved data with a passphrase</span><input type="checkbox" data-action="toggle-encrypt" ${store.encrypted ? 'checked' : ''}></label>` : ''}</div>
+      <p class="footer-note">The PIN is a screen lock: a 4–6 digit code asked when the app opens, and it cannot be recovered if forgotten. The passphrase goes further: it scrambles the data stored on this phone, receipt photos included, and you type it each time you open the app. If you forget it, nobody can get your data back, so keep a backup.</p></div>
 
     <div><div class="section-title"><span>Your data</span></div><div class="rows">
       <button class="row setting" data-action="export-xlsx">${icon('share')}<span class="grow">Export to Excel</span><span class="value">${icon('chevR')}</span></button>
@@ -618,13 +688,13 @@ function renderSettings() {
       <button class="row setting" data-action="export-backup">${icon('doc')}<span class="grow">Save full backup</span><span class="value">${icon('chevR')}</span></button>
       <button class="row setting" data-action="import-backup">${icon('refresh')}<span class="grow">Restore from backup</span><span class="value">${icon('chevR')}</span></button>
       <button class="row setting danger" data-action="erase">${icon('trash')}<span class="grow">Erase all transactions</span></button></div>
-      <p class="footer-note">Last export: ${lastExport}. Your data lives only in this browser on this phone — clearing Safari's website data deletes it, so save a backup to Files or iCloud Drive regularly.</p>
+      <p class="footer-note">Last export: ${lastExport}. Your data lives only in this browser on this phone — clearing ${onIOS ? "Safari's" : "your browser's"} website data deletes it, so save a backup to ${onIOS ? 'Files or iCloud Drive' : 'your Downloads folder or a cloud drive'} regularly.</p>
       <input type="file" id="file-json" accept=".json,application/json" class="hidden"></div>
 
     <div><div class="section-title"><span>About</span></div><div class="rows">
       ${counts.map((x) => `<div class="row setting"><span class="grow">${x.c.code} transactions</span><span class="value num">${x.n}</span></div>`).join('')}
       <div class="row setting"><span class="grow">All transactions</span><span class="value num">${store.transactions.length}</span></div>
-      <div class="row setting"><span class="grow">Version</span><span class="value">3.2 (web)</span></div></div>
+      <div class="row setting"><span class="grow">Version</span><span class="value">3.5 (web)</span></div></div>
       <p class="footer-note">Everything is stored on this device only. Statements are read on this phone and never uploaded. The only request the app makes is for exchange rates, and only when a home currency is set.</p></div>
   </div></div>`;
 }
@@ -633,7 +703,7 @@ function ordinal(n) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n 
 
 // ---------- Report (printable)
 function reportActions(hash) {
-  const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  const standalone = window.navigator.standalone === true; // only an iPhone home-screen app cannot print; Android can
   const link = location.href.split('#')[0] + hash;
   return `<div class="report-actions"><button class="btn secondary" data-action="close-report">${icon('x')} Close</button>${standalone
     ? `<a class="btn primary" href="${esc(link)}" target="_blank" rel="noopener">${icon('share')} Open in Safari to save as PDF</a>`
@@ -858,7 +928,7 @@ function budgetWarning(data) {
 
 // ---- category form
 function categoryForm(cat = null) {
-  const v = { name: cat?.name || '', type: cat?.type || 'Expense', budget: cat && cat.budget > 0 ? cat.budget.toFixed(2) : '', budgetCurrency: cat?.budgetCurrency || store.settings.currency };
+  const v = { name: cat?.name || '', type: cat?.type || 'Expense', budget: cat && cat.budget > 0 ? cat.budget.toFixed(2) : '', budgetCurrency: cat && cat.budget > 0 && cat.budgetCurrency ? cat.budgetCurrency : store.settings.currency };
   sheetState = { kind: 'cat', id: cat?.id || null, values: v };
   renderCategoryForm();
 }
@@ -1021,6 +1091,7 @@ document.addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   const a = btn.dataset.action;
+  if (OPENERS.has(a)) hideToast();
   if (a === 'go') { ui.tab = btn.dataset.tab; render(); window.scrollTo(0, 0); }
   else if (a === 'step') {
     const delta = +btn.dataset.delta;
@@ -1101,9 +1172,20 @@ document.addEventListener('click', async (e) => {
     store.addRule({ type: 'Expense', category: d.category, amount: +d.amount, desc: d.desc, currency: d.currency, frequency: d.frequency, startDate: d.last });
     toast(`${d.desc} will be added ${d.frequency.toLowerCase()}`);
   }
-  else if (a === 'export-csv') download(`ExpenseTracker-${todayISO()}.csv`, exportCSV(store.transactions), 'text/csv');
-  else if (a === 'export-xlsx') download(`ExpenseTracker-${todayISO()}.xlsx`, buildExcel());
-  else if (a === 'export-backup') { const ids = await receiptIds(); const receipts = await exportReceipts(ids); download(`ExpenseTracker-backup-${todayISO()}.json`, store.exportBackup(receipts), 'application/json'); }
+  else if (a === 'export-csv') { if (await confirmPlain('spreadsheet')) download(`ExpenseTracker-${todayISO()}.csv`, exportCSV(store.transactions), 'text/csv'); }
+  else if (a === 'export-xlsx') { if (await confirmPlain('Excel file')) download(`ExpenseTracker-${todayISO()}.xlsx`, buildExcel()); }
+  else if (a === 'export-backup') await saveBackup();
+  else if (a === 'save-damaged') {
+    const raw = store.damagedCopy();
+    if (!raw) { await notify('There is no damaged copy to save.', 'Saved data'); return; }
+    download(`ExpenseTracker-damaged-copy-${todayISO()}.json`, raw, 'application/json');
+    if (!store.blocked) store.markDamagedSaved();
+    render();
+  }
+  else if (a === 'dismiss-damaged') { ui.hideRecovery = true; render(); }
+  else if (a === 'start-fresh') {
+    if (await ask('The app will start empty. The damaged data is replaced. Only do this after you saved a copy.', { title: 'Start fresh?', confirmText: 'Start fresh' })) { store.startFresh(); store.clearDamaged(); catIndex = null; render(); }
+  }
   else if (a === 'import-open') openImport();
   else if (a === 'undo-import') {
     const im = store.imports.find((x) => x.id === btn.dataset.id);
@@ -1176,9 +1258,10 @@ document.addEventListener('change', async (e) => {
   else if (a === 'f-record') { if (sheetState) sheetState.values.record = el.checked; }
   else if (a === 'toggle-reports') store.setSetting('reportsEnabled', el.checked);
   else if (a === 'set-theme') { store.setSetting('theme', el.value); applyTheme(); }
-  else if (a === 'set-look') { store.setSetting('look', el.value === 'gold' ? 'gold' : 'indigo'); applyTheme(); }
+  else if (a === 'set-look') { store.setSetting('look', LOOKS.includes(el.value) ? el.value : 'indigo'); applyTheme(); }
   else if (a === 'toggle-rollover') store.setSetting('budgetRollover', el.checked);
   else if (a === 'set-report-day') store.setSetting('reportDay', +el.value);
+  else if (a === 'toggle-encrypt') { await toggleEncryption(el); }
   else if (a === 'toggle-pin') { if (el.checked) setPinFlow(); else showLock('disable', 'Enter your PIN to turn it off'); }
   else if (el.id === 'file-receipt' && el.files[0] && sheetState?.kind === 'tx') {
     const file = el.files[0]; el.value = '';
@@ -1186,14 +1269,80 @@ document.addEventListener('change', async (e) => {
     catch (err) { await notify(err.message || 'Could not read the photo.', 'Receipt'); }
   }
   else if (el.id === 'file-json' && el.files[0]) {
-    const text = await readFile(el.files[0]); el.value = '';
+    const raw = await readFile(el.files[0]); el.value = '';
     try {
+      const text = await readBackupText(raw);
+      if (text === null) return;
       const r = store.restoreBackup(text); catIndex = null; adoptCurrency(); ui.pickedInitial = false; render();
       const n = await importReceipts(r.receipts);
-      await notify(`Restored ${r.transactions} transactions, ${r.categories} categories and ${r.rules} recurring rules${n ? ` and ${n} receipt photos` : ''}.`, 'Restore');
+      const left = r.skipped ? ` ${r.skipped} damaged ${r.skipped === 1 ? 'row was' : 'rows were'} left out.` : '';
+      const pl = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+      await notify(`Restored ${pl(r.transactions, 'transaction', 'transactions')}, ${pl(r.categories, 'category', 'categories')} and ${pl(r.rules, 'recurring rule', 'recurring rules')}${n ? ` and ${pl(n, 'receipt photo', 'receipt photos')}` : ''}.${left}`, 'Restore');
     } catch (err) { await notify(err.message || 'That file is not an Expense Tracker backup.', 'Restore'); }
   }
 });
+
+async function toggleEncryption(el) {
+  if (el.checked) {
+    const ok = await ask('Your data on this phone will be scrambled with a passphrase you choose, and you will type it every time you open the app. If you forget it, nobody can get your data back, not even me. Save a backup first so you are never locked out of your own records.', { title: 'Lock your saved data?', confirmText: 'Choose a passphrase', danger: false });
+    if (!ok) { render(); return; }
+    let key = null;
+    const pw = await askPassword({
+      title: 'Choose a passphrase', message: 'At least 8 characters. Write it down somewhere safe.', confirmText: 'Lock my data', again: true,
+      check: async (p) => { try { key = await store.enableEncryption(p); return null; } catch (e) { return e.message || 'Could not lock the data.'; } },
+    });
+    if (pw === null) { render(); return; }
+    setReceiptKey(key);
+    try { await convertReceipts(key); } catch (e) { console.error('Receipts not locked', e); await notify('Your data is locked, but some receipt photos could not be. They are still safe on this phone.', 'Passphrase'); }
+    toast('Saved data is locked'); render();
+  } else {
+    if (!(await ask('The data on this phone will be stored in plain form again, as it was before. You will not be asked for the passphrase any more.', { title: 'Remove the passphrase?', confirmText: 'Remove it', danger: false }))) { render(); return; }
+    await store.disableEncryption();
+    try { await convertReceipts(null); } catch (e) { console.error('Receipts not unlocked', e); }
+    toast('Passphrase removed'); render();
+  }
+}
+
+// Shown before anything else when saved data is locked.
+function passphraseGate() {
+  return new Promise((resolve) => {
+    const el = $('#lock');
+    el.classList.remove('hidden');
+    el.innerHTML = `${icon('lock')}<h2>Enter your passphrase</h2>
+      <input id="gate-pw" class="gate-input" type="password" placeholder="Passphrase" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <div class="err" id="gate-err" role="alert"></div>
+      <button class="btn primary" id="gate-go">Unlock</button>
+      <button class="gate-forgot" id="gate-forgot">I forgot it</button>`;
+    const pw = $('#gate-pw'), err = $('#gate-err'), go = $('#gate-go');
+    pw.focus();
+    let busy = false;
+    const open = async () => {
+      if (busy || !pw.value) return;
+      busy = true; go.disabled = true; err.textContent = 'Unlocking…';
+      await new Promise((r) => setTimeout(r, 30));
+      try {
+        const key = await store.unlock(pw.value);
+        setReceiptKey(key);
+        el.classList.add('hidden'); el.innerHTML = '';
+        resolve();
+      } catch (e) {
+        busy = false; go.disabled = false;
+        err.textContent = e && e.wrong ? 'That passphrase is not right.' : (e && e.message) || 'Could not unlock.';
+        pw.select();
+      }
+    };
+    go.addEventListener('click', open);
+    pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
+    $('#gate-forgot').addEventListener('click', async () => {
+      if (busy) return;
+      const yes = await ask('A forgotten passphrase cannot be recovered by anyone. If you have a backup file, you can erase the locked data on this phone and restore the backup. This removes everything stored here, receipt photos included.', { title: 'Erase and start over?', confirmText: 'Erase everything here' });
+      if (!yes) return;
+      store.eraseLocked(); await clearReceipts();
+      el.classList.add('hidden'); el.innerHTML = '';
+      resolve();
+    });
+  });
+}
 
 function setPinFlow() {
   showLock('set', 'Choose a 4–6 digit PIN');
@@ -1236,13 +1385,59 @@ function buildExcel() {
   ]);
 }
 
+// Spreadsheets cannot be locked from here, so the person is told before the file exists.
+function confirmPlain(kind) {
+  return ask(`This ${kind} is not protected. Anyone who gets it can read every amount and description. Keep it somewhere private, and do not send it to people you do not trust.`, { title: 'Save without a password?', confirmText: 'Save the file', danger: false });
+}
+
+async function saveBackup() {
+  let how = 'protected';
+  if (vaultAvailable()) {
+    how = await dialog({
+      title: 'Save a backup',
+      message: 'A backup holds every amount, description and receipt photo. A plain file can be opened by anyone who gets it. A protected file needs a password that you choose. If you forget the password, nobody can open the file, including me.',
+      stack: true,
+      buttons: [{ label: 'Protect it with a password', value: 'protected', primary: true }, { label: 'Save a plain file', value: 'plain' }, { label: 'Cancel', value: false }],
+    });
+  } else {
+    how = 'plain';
+    if (!(await confirmPlain('backup'))) how = false;
+  }
+  if (!how) return;
+  let pw = null;
+  if (how === 'protected') {
+    pw = await askPassword({ title: 'Choose a password', message: 'Write it down somewhere safe. It cannot be recovered.', confirmText: 'Save backup', again: true });
+    if (!pw) return;
+  }
+  toast(pw ? 'Locking the backup…' : 'Preparing the backup…');
+  const ids = await receiptIds();
+  const receipts = await exportReceipts(ids);
+  const json = store.exportBackup(receipts);
+  if (!pw) { download(`ExpenseTracker-backup-${todayISO()}.json`, json, 'application/json'); return; }
+  const envelope = await sealText(json, pw);
+  download(`ExpenseTracker-backup-${todayISO()}-protected.json`, JSON.stringify({ app: 'Expense Tracker', ...envelope }), 'application/json');
+}
+
+// Reads a backup file as text, asking for the password first when the file is protected.
+async function readBackupText(text) {
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch { return text; } // restoreBackup explains an unreadable file
+  if (!looksEncrypted(parsed)) return text;
+  let opened = null;
+  const pw = await askPassword({
+    title: 'This backup has a password', message: 'Type the password you chose when you saved it.', confirmText: 'Open it',
+    check: async (p) => { try { opened = await openText(parsed, p); return null; } catch (e) { return e.wrong ? 'That password is not right. Try again.' : 'This backup could not be opened.'; } },
+  });
+  return pw === null ? null : opened;
+}
+
 function download(name, content, type) {
   const blob = content instanceof Blob ? content : new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
   store.setSetting('lastExport', Date.now());
-  toast('Use "Save to Files" to keep it in iCloud Drive');
+  toast(onIOS ? 'Use "Save to Files" to keep it in iCloud Drive' : 'Saved. Look in your Downloads folder');
 }
 
 // swipe on the hero to change month
@@ -1258,6 +1453,11 @@ document.addEventListener('touchend', (e) => {
 function banners() {
   const st = store.settings;
   let out = '';
+  if (store.blocked) {
+    out += `<div class="banner warn">${icon('shield')}<div class="txt">Your saved data could not be read, and there is no room to keep a copy. Nothing new is being saved, so the original stays untouched. Save a copy to a file first.</div><button data-action="save-damaged">Save a copy</button><button data-action="start-fresh">Start fresh</button></div>`;
+  } else if (store.recovery && !ui.hideRecovery) {
+    out += `<div class="banner warn">${icon('shield')}<div class="txt">Your saved data could not be read, so the app started empty. A copy of the damaged data was kept. Save it to a file in case it can be fixed.</div><button data-action="save-damaged">Save a copy</button><button class="muted" data-action="dismiss-damaged">${icon('x')}</button></div>`;
+  }
   if (st.reportsEnabled) {
     const d = new Date();
     if (d.getDate() >= st.reportDay) {
@@ -1270,7 +1470,7 @@ function banners() {
   const days = 30 * 86400000;
   const last = Math.max(st.lastExport || 0, st.lastBackupPrompt || 0);
   if (store.transactions.length > 0 && Date.now() - last > days && (st.lastExport || store.transactions.length > 20)) {
-    out += `<div class="banner">${icon('shield')}<div class="txt">It's been a while since your last backup. Save one to Files or iCloud Drive.</div><button data-action="go" data-tab="settings">Backup</button><button class="muted" data-action="dismiss-backup-banner">${icon('x')}</button></div>`;
+    out += `<div class="banner">${icon('shield')}<div class="txt">It's been a while since your last backup. Save one to ${onIOS ? 'Files or iCloud Drive' : 'your Downloads folder or a cloud drive'}.</div><button data-action="go" data-tab="settings">Backup</button><button class="muted" data-action="dismiss-backup-banner">${icon('x')}</button></div>`;
   }
   return out;
 }
@@ -1308,9 +1508,11 @@ store.subscribe(() => { catIndex = null; if (!sheetState) render(); });
 function applyTheme() {
   const t = store.settings.theme;
   if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; else document.documentElement.removeAttribute('data-theme');
-  const gold = store.settings.look === 'gold';
-  if (gold) document.documentElement.dataset.look = 'gold'; else document.documentElement.removeAttribute('data-look');
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', gold ? '#141416' : '#171E4A');
+  const look = lookOf();
+  if (look !== 'indigo') document.documentElement.dataset.look = look; else document.documentElement.removeAttribute('data-look');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', look === 'gold' ? '#141416' : look === 'cobalt' ? '#F8FAFC' : look === 'obsidian' ? '#0B0E11' : '#171E4A');
+  // a light page needs dark clock and battery icons on an iPhone (read again the next time the app is opened)
+  document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.setAttribute('content', look === 'cobalt' ? 'default' : 'black-translucent');
 }
 
 function openFromHash() {
@@ -1333,6 +1535,7 @@ function init() {
   initEntry({ toast, edit: (prefill) => txForm({ prefill }) });
   initImport({
     confirmLeave: () => ask('Nothing has been added yet.', { title: 'Leave without adding?', confirmText: 'Leave', danger: false }),
+    confirmMismatch: (n) => ask(`${n} ${n === 1 ? 'row does' : 'rows do'} not add up with the balance column on your statement. An amount may be misread, or a row may be missing. Compare with your statement before you continue.`, { title: 'The totals do not match', confirmText: 'Add anyway', danger: false }),
     done: (r) => {
       catIndex = null;
       if (r.currency !== store.settings.currency || store.settings.showAll) { store.state.settings.showAll = false; store.setSetting('currency', r.currency); }
@@ -1360,4 +1563,4 @@ function init() {
   }
 }
 
-init();
+(async () => { if (store.sealed) await passphraseGate(); init(); })();

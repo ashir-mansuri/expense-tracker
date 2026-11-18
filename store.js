@@ -1,6 +1,12 @@
 // Data layer: everything is kept in localStorage on this device only.
 import { repayPlan } from './owed.js';
+import { cleanBackup } from './schema.js';
+import { available as vaultAvailable, deriveKey, newSalt, sealTextWithKey, openTextWithKey, fromB64, looksEncrypted, ITER } from './vault.js';
 export const STORAGE_KEY = 'expense-tracker.v1';
+export const ENC_KEY = 'expense-tracker.v1.enc';       // the same data, locked with a passphrase (only when the person turns that on)
+export const DAMAGED_KEY = 'expense-tracker.v1.damaged'; // a copy of saved data that could not be read
+export const PREFS_KEY = 'expense-tracker.prefs';       // look and theme only, so the screen has the right colours before it unlocks
+const ARRAY_KEYS = ['transactions', 'categories', 'rules', 'accounts', 'transfers', 'goals', 'imports', 'owed'];
 export const CURRENCIES = [
   { code: 'AED', name: 'UAE Dirham' },
   { code: 'AUD', name: 'Australian Dollar' },
@@ -58,8 +64,18 @@ export function guessCurrency() {
   } catch { return 'USD'; }
 }
 
-export const uid = () =>
-  (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now().toString(36) + Math.random().toString(36).slice(2));
+let idCounter = 0;
+export function uid() {
+  if (globalThis.crypto && crypto.randomUUID) return crypto.randomUUID();
+  // older browsers: build a proper random id from the secure random source, never from the clock alone
+  const b = new Uint8Array(16);
+  if (globalThis.crypto && crypto.getRandomValues) crypto.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  idCounter += 1;
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`.slice(0, 35) + (idCounter & 0xf).toString(16);
+}
 
 export function todayISO() {
   const d = new Date();
@@ -113,47 +129,170 @@ function defaultState() {
 
 class Store {
   constructor() {
-    this.state = this.load();
     this.listeners = new Set();
     this.saveTimer = null;
+    this.dirty = false;
+    this.sealed = false;   // saved data is locked with a passphrase and has not been opened yet
+    this.vault = null;     // { key, salt, iter } while the passphrase is on and unlocked
+    this.blocked = false;  // saving is paused so unreadable saved data is never overwritten
+    this.recovery = null;  // set when unreadable saved data had to be put aside
+    this.writing = null;
+    this.again = false;
+    this.state = this.load();
+  }
+
+  get encrypted() { return this.sealed || !!this.vault; }
+
+  fromParsed(parsed) {
+    const base = defaultState();
+    return {
+      ...base,
+      ...parsed,
+      settings: { ...base.settings, ...(parsed.settings || {}) },
+      transactions: parsed.transactions || [],
+      categories: parsed.categories && parsed.categories.length ? parsed.categories : base.categories,
+      rules: parsed.rules || [],
+      accounts: parsed.accounts || [],
+      transfers: parsed.transfers || [],
+      goals: parsed.goals || [],
+      imports: parsed.imports || [],
+      merchants: parsed.merchants || {},
+      owed: parsed.owed || [],
+    };
+  }
+
+  // Saved data that cannot be understood is kept as a separate copy before anything new is written over it.
+  setAside(raw, why) {
+    console.error('Could not read saved data', why);
+    let kept = false;
+    try { localStorage.setItem(DAMAGED_KEY, JSON.stringify({ at: Date.now(), saved: false, raw })); kept = true; } catch { /* no room for a copy */ }
+    this.recovery = { at: Date.now(), kept };
+    if (!kept) this.blocked = true; // nothing is written, so the original stays exactly as it is
+    return defaultState();
   }
 
   load() {
+    let raw = null, enc = null;
+    try { raw = localStorage.getItem(STORAGE_KEY); enc = localStorage.getItem(ENC_KEY); } catch (e) { console.error('Storage is not available', e); return defaultState(); }
+    if (!raw && enc) { this.sealed = true; return defaultState(); }
+    if (!raw) return defaultState();
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (e) { return this.setAside(raw, e); }
+    const okShape = parsed && typeof parsed === 'object' && !Array.isArray(parsed) && ARRAY_KEYS.every((k) => parsed[k] === undefined || Array.isArray(parsed[k]));
+    if (!okShape) return this.setAside(raw, new Error('unexpected shape'));
+    return this.fromParsed(parsed);
+  }
+
+  // the unreadable copy, for saving to a file
+  damagedCopy() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return defaultState();
-      const parsed = JSON.parse(raw);
-      const base = defaultState();
-      return {
-        ...base,
-        ...parsed,
-        settings: { ...base.settings, ...(parsed.settings || {}) },
-        transactions: parsed.transactions || [],
-        categories: parsed.categories && parsed.categories.length ? parsed.categories : base.categories,
-        rules: parsed.rules || [],
-        accounts: parsed.accounts || [],
-        transfers: parsed.transfers || [],
-        goals: parsed.goals || [],
-        imports: parsed.imports || [],
-        merchants: parsed.merchants || {},
-        owed: parsed.owed || [],
-      };
-    } catch (e) {
-      console.error('Could not read saved data', e);
-      return defaultState();
-    }
+      const d = JSON.parse(localStorage.getItem(DAMAGED_KEY) || 'null');
+      if (d && typeof d.raw === 'string') return d.raw;
+    } catch { /* fall through */ }
+    try { return this.blocked ? localStorage.getItem(STORAGE_KEY) : null; } catch { return null; }
+  }
+  markDamagedSaved() {
+    try { const d = JSON.parse(localStorage.getItem(DAMAGED_KEY) || 'null'); if (d) { d.saved = true; localStorage.setItem(DAMAGED_KEY, JSON.stringify(d)); } } catch { /* ignore */ }
+    this.recovery = null;
+  }
+  clearDamaged() { try { localStorage.removeItem(DAMAGED_KEY); } catch { /* ignore */ } this.recovery = null; }
+  // later launches: the copy is still there and has not been saved yet
+  checkDamagedLeftover() {
+    if (this.recovery) return;
+    try { const d = JSON.parse(localStorage.getItem(DAMAGED_KEY) || 'null'); if (d && !d.saved) this.recovery = { at: d.at, kept: true }; } catch { /* ignore */ }
+  }
+  startFresh() { // only used when the copy could not be made; the person has saved the data to a file first
+    this.blocked = false; this.recovery = null; this.state = defaultState(); this.commit();
   }
 
   persist() {
+    if (this.sealed || this.blocked) return;
+    if (this.vault) { this.writeEncrypted(); return; } // locked data is written straight away, so nothing waits to be lost
+    this.dirty = true;
     clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
-      } catch (e) {
-        console.error('Could not save', e);
-        alert('Saving failed. Your phone may be out of storage, or Safari is in private mode.');
-      }
-    }, 50);
+    this.saveTimer = setTimeout(() => this.flush(), 50);
+  }
+
+  // Writes anything still waiting. Called when the page is hidden, closed or sent to the background.
+  flush() {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    if (this.sealed || this.blocked) return;
+    if (this.vault) { if (this.dirty) { this.dirty = false; this.writeEncrypted(); } return; }
+    if (!this.dirty) return;
+    this.dirty = false;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      this.writePrefs();
+    } catch (e) {
+      console.error('Could not save', e);
+      alert('Saving failed. Your phone may be out of storage, or Safari is in private mode.');
+    }
+  }
+
+  writePrefs() {
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ look: this.state.settings.look || null, theme: this.state.settings.theme || null })); } catch { /* not important */ }
+  }
+
+  writeEncrypted() {
+    if (this.writing) { this.again = true; return this.writing; }
+    this.writing = (async () => {
+      do {
+        this.again = false;
+        const env = await sealTextWithKey(JSON.stringify(this.state), this.vault.key, this.vault.salt, this.vault.iter);
+        localStorage.setItem(ENC_KEY, JSON.stringify(env));
+        this.writePrefs();
+      } while (this.again && this.vault);
+    })().catch((e) => {
+      console.error('Could not save', e);
+      alert('Saving failed. Your phone may be out of storage, or Safari is in private mode.');
+    }).finally(() => { this.writing = null; });
+    return this.writing;
+  }
+
+  // ---- passphrase protection of the data kept on this phone (optional)
+  async unlock(passphrase) {
+    const env = JSON.parse(localStorage.getItem(ENC_KEY));
+    if (!looksEncrypted(env)) throw new Error('The locked data on this phone is damaged.');
+    const salt = fromB64(env.salt);
+    const key = await deriveKey(passphrase, salt, env.iter);
+    const text = await openTextWithKey(env, key); // throws "wrong" when the passphrase is not right
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { throw new Error('The locked data on this phone is damaged.'); }
+    this.state = this.fromParsed(parsed);
+    this.vault = { key, salt, iter: env.iter };
+    this.sealed = false;
+    for (const fn of this.listeners) fn(this.state);
+    return this.vault.key;
+  }
+
+  async enableEncryption(passphrase) {
+    if (!vaultAvailable()) throw new Error('This browser cannot protect data with a passphrase.');
+    clearTimeout(this.saveTimer); this.dirty = false;
+    const salt = newSalt();
+    const key = await deriveKey(passphrase, salt);
+    const text = JSON.stringify(this.state);
+    const env = await sealTextWithKey(text, key, salt, ITER);
+    if ((await openTextWithKey(env, key)) !== text) throw new Error('Could not lock the data.'); // proven before the plain copy goes away
+    localStorage.setItem(ENC_KEY, JSON.stringify(env));
+    localStorage.removeItem(STORAGE_KEY);
+    this.vault = { key, salt, iter: ITER };
+    this.writePrefs();
+    return key;
+  }
+
+  async disableEncryption() {
+    if (this.writing) await this.writing;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+    localStorage.removeItem(ENC_KEY);
+    this.vault = null;
+    this.dirty = false;
+  }
+
+  // The person chose to give up the passphrase data and start again.
+  eraseLocked() {
+    try { localStorage.removeItem(ENC_KEY); } catch { /* ignore */ }
+    this.sealed = false; this.vault = null; this.state = defaultState();
   }
 
   subscribe(fn) {
@@ -413,38 +552,49 @@ class Store {
 
   // ---- backup
   exportBackup(receipts = {}) {
-    return JSON.stringify({ app: 'Expense Tracker', version: 2, exportedAt: new Date().toISOString(), ...this.state, receipts }, null, 2);
+    // the PIN lock stays on the phone it was set on, so it is left out of the file
+    const settings = { ...this.state.settings, pinHash: null };
+    return JSON.stringify({ app: 'Expense Tracker', version: 2, exportedAt: new Date().toISOString(), ...this.state, settings, receipts }, null, 2);
   }
 
   restoreBackup(json) {
-    const parsed = JSON.parse(json);
-    if (!parsed || !Array.isArray(parsed.transactions)) throw new Error('Not an Expense Tracker backup.');
-    const out = { transactions: 0, categories: 0, rules: 0 };
-    for (const c of parsed.categories || []) {
+    let parsed;
+    try { parsed = JSON.parse(json); } catch { throw new Error('This file could not be read. Choose a backup that was saved from this app.'); }
+    const { data, total } = cleanBackup(parsed, uid); // damaged rows are left out here, before anything is merged
+    const out = { transactions: 0, categories: 0, rules: 0, skipped: total };
+    for (const c of data.categories) {
       const exists = this.state.categories.some((x) => x.type === c.type && x.name.toLowerCase() === c.name.toLowerCase());
-      if (!exists) { this.state.categories.push({ ...c, id: c.id || uid() }); out.categories += 1; }
+      if (!exists) { this.state.categories.push(c); out.categories += 1; }
     }
     const ids = new Set(this.state.transactions.map((t) => t.id));
-    const rows = parsed.transactions.filter((t) => !ids.has(t.id));
+    const rows = data.transactions.filter((t) => !ids.has(t.id));
     const result = this.insertRows(rows, this.settings.currency);
     out.transactions = result.added;
     const ruleIds = new Set(this.state.rules.map((r) => r.id));
-    for (const r of parsed.rules || []) {
+    for (const r of data.rules) {
       if (!ruleIds.has(r.id)) { this.state.rules.push(r); out.rules += 1; }
     }
-    for (const [k, v] of Object.entries(parsed.merchants || {})) if (!(k in this.state.merchants)) this.state.merchants[k] = v;
+    for (const [k, v] of Object.entries(data.merchants)) if (!Object.prototype.hasOwnProperty.call(this.state.merchants, k)) this.state.merchants[k] = v;
     for (const key of ['accounts', 'transfers', 'goals', 'owed']) {
       if (!this.state[key]) this.state[key] = [];
       const have = new Set(this.state[key].map((x) => x.id));
-      for (const x of parsed[key] || []) if (x && x.id && !have.has(x.id)) this.state[key].push(x);
+      for (const x of data[key]) if (!have.has(x.id)) this.state[key].push(x);
     }
     this.commit();
-    out.receipts = parsed.receipts || {};
+    out.receipts = data.receipts;
     return out;
   }
 }
 
 export const store = new Store();
+store.checkDamagedLeftover();
+
+// Whatever is still waiting to be saved is written as the page is hidden or closed.
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => store.flush());
+  window.addEventListener('beforeunload', () => store.flush());
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') store.flush(); });
+}
 
 // ---- Recurring rules: add what is due, up to today.
 export function stepDate(iso, frequency, n) {
@@ -586,14 +736,14 @@ export function parseCSV(text) {
     const raw = parseAmount(amountText);
     if (!date || raw === null || raw === 0) { result.skipped += 1; continue; }
     const type = val(row, typeC).toLowerCase().startsWith('inc') ? 'Income' : 'Expense';
-    let category = val(row, catC) || 'Other';
+    let category = csvUnsafe(val(row, catC)) || 'Other';
     let currency = val(row, curC).toUpperCase();
     if (!CURRENCY_CODES.includes(currency)) {
       currency = amountText.includes('€') ? 'EUR' : amountText.includes('₹') ? 'INR' : amountText.includes('CA$') ? 'CAD' : amountText.includes('$') ? 'USD' : null;
     }
-    const row2 = { date, type, category, amount: Math.abs(raw), currency, desc: val(row, descC) };
+    const row2 = { date, type, category, amount: Math.abs(raw), currency, desc: csvUnsafe(val(row, descC)) };
     const time = parseTime(val(row, timeC)); if (time) row2.time = time;
-    const tags = val(row, tagsC).split(/[,;]/).map((x) => x.trim()).filter(Boolean); if (tags.length) row2.tags = tags;
+    const tags = val(row, tagsC).split(/[,;]/).map((x) => csvUnsafe(x.trim())).filter(Boolean); if (tags.length) row2.tags = tags;
     result.rows.push(row2);
   }
   return result;
@@ -630,11 +780,19 @@ export function parseTable(text, delimiter) {
   return rows;
 }
 
+// Spreadsheet programs run text that starts with = + - @ as a formula. A leading apostrophe keeps it as plain text.
+export const csvSafe = (s) => (/^[=+\-@\t\r]/.test(s) ? "'" + s : s);
+// the reverse, for reading this app's own exports back in
+export const csvUnsafe = (s) => (typeof s === 'string' && /^'[=+\-@\t\r]/.test(s) ? s.slice(1) : s);
+
 export function exportCSV(transactions) {
-  const esc = (s) => (/[",;\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s);
+  const esc = (v) => {
+    const s = csvSafe(String(v ?? ''));
+    return /[",;\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
   const sorted = [...transactions].sort((a, b) => (a.date === b.date ? a.createdAt - b.createdAt : a.date < b.date ? -1 : 1));
   const lines = ['Date,Time,Type,Category,Amount,Currency,Description,Tags,Account'];
   const accName = (id) => (store.state.accounts.find((a) => a.id === id) || {}).name || '';
   for (const t of sorted) lines.push([t.date, t.time || '', t.type, esc(t.category), t.amount.toFixed(2), t.currency, esc(t.desc || ''), esc((t.tags || []).join(', ')), esc(accName(t.account))].join(','));
-  return '﻿' + lines.join('\r\n') + '\r\n';
+  return '\ufeff' + lines.join('\r\n') + '\r\n';
 }

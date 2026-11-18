@@ -492,23 +492,40 @@ export function isOwnExport(headers) {
 
 // ------------------------------------------------------------------ against what the person already has
 
-// Marks rows that are already in the ledger. Same reference number = the very same payment.
-// Same day, amount and direction = probably the same (maybe typed in by hand).
+// Marks rows that are already in the ledger.
+//  'same'   the bank's reference number matches, the very same payment
+//  'likely' no reference to compare, but same day, amount and direction and a shared word in the name
+//  'maybe'  no reference to compare, same day, amount and direction only (perhaps typed in by hand)
+// When both sides carry a reference and the references differ, they are two different payments, however alike they look.
+const nameWords = (s) => new Set(String(s || '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2));
+const shareWord = (a, b) => { const A = nameWords(a), B = nameWords(b); for (const w of A) if (B.has(w)) return true; return false; };
+
 export function markDuplicates(rows, existing) {
-  const sure = new Map(), maybe = new Map();
   const cents = (x) => Math.round(x * 100);
+  const used = new Set();
+  const byRef = new Map(), byDay = new Map();
   for (const t of existing) {
-    if (t.ref) { const k = `${t.currency}|${t.type}|${cents(t.amount)}|${t.ref}`; sure.set(k, (sure.get(k) || 0) + 1); }
+    if (t.ref) { const k = `${t.currency}|${t.type}|${cents(t.amount)}|${t.ref}`; (byRef.get(k) || byRef.set(k, []).get(k)).push(t); }
     const k2 = `${t.date}|${t.currency}|${t.type}|${cents(t.amount)}`;
-    maybe.set(k2, (maybe.get(k2) || 0) + 1);
+    (byDay.get(k2) || byDay.set(k2, []).get(k2)).push(t);
   }
-  let exact = 0, possible = 0;
+  let exact = 0, likely = 0, possible = 0;
+  for (const r of rows) r.dup = null;
+  // the surest matches first, so a reference match is never used up by a looser one
   for (const r of rows) {
-    r.dup = null;
-    const k = `${r.currency}|${r.type}|${cents(r.amount)}|${r.ref}`;
-    if (r.ref && (sure.get(k) || 0) > 0) { sure.set(k, sure.get(k) - 1); r.dup = 'same'; exact++; continue; }
-    const k2 = `${r.date}|${r.currency}|${r.type}|${cents(r.amount)}`;
-    if ((maybe.get(k2) || 0) > 0) { maybe.set(k2, maybe.get(k2) - 1); r.dup = 'maybe'; possible++; }
+    if (!r.ref) continue;
+    const list = byRef.get(`${r.currency}|${r.type}|${cents(r.amount)}|${r.ref}`) || [];
+    const t = list.find((x) => !used.has(x));
+    if (t) { used.add(t); r.dup = 'same'; exact++; }
   }
-  return { exact, possible };
+  for (const r of rows) {
+    if (r.dup) continue;
+    const list = (byDay.get(`${r.date}|${r.currency}|${r.type}|${cents(r.amount)}`) || []).filter((x) => !used.has(x) && !(x.ref && r.ref && x.ref !== r.ref));
+    if (!list.length) continue;
+    const named = list.find((x) => shareWord(x.desc, r.desc) || shareWord(x.desc, r.raw));
+    const t = named || list[0];
+    used.add(t);
+    if (named) { r.dup = 'likely'; likely++; } else { r.dup = 'maybe'; possible++; }
+  }
+  return { exact, likely, possible };
 }

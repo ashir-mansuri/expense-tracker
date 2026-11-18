@@ -46,7 +46,7 @@ export function columns(points, { height = 190, formatY = (v) => String(v) } = {
     const cx = padL + groupW * i + groupW / 2;
     const ih = innerH * (p.income / niceMax), eh = innerH * (p.expense / niceMax);
     out += `<rect x="${cx - barW - 1.5}" y="${y(p.income)}" width="${barW}" height="${ih}" rx="3" style="fill:var(--good)" class="col"></rect>`;
-    out += `<rect x="${cx + 1.5}" y="${y(p.expense)}" width="${barW}" height="${eh}" rx="3" style="fill:var(--c1)" class="col"></rect>`;
+    out += `<rect x="${cx + 1.5}" y="${y(p.expense)}" width="${barW}" height="${eh}" rx="3" style="fill:var(--bar-exp, var(--c1))" class="col"></rect>`;
     out += `<text x="${cx}" y="${height - 6}" text-anchor="middle" class="axis">${esc(p.label)}</text>`;
   });
   return out + '</svg>';

@@ -60,12 +60,12 @@ function wire(flow) {
   flow.addEventListener('click', (e) => {
     const b = e.target.closest('[data-f]');
     if (!b || !st) return;
-    act(b.dataset.f, b, e);
+    safely(() => act(b.dataset.f, b, e));
   });
   flow.addEventListener('change', (e) => {
     const el = e.target;
     if (el.id === 'flow-file') { const file = el.files[0]; el.value = ''; if (file) readFile(file); return; }
-    if (el.dataset.f && st) change(el.dataset.f, el);
+    if (el.dataset.f && st) safely(() => change(el.dataset.f, el));
   });
   flow.addEventListener('input', (e) => {
     if (!st || !e.target.classList.contains('paste')) return;
@@ -83,7 +83,8 @@ async function readFile(file, password = null) {
     ingest(read);
   } catch (err) {
     if (err && err.needsPassword) { st.wrong = !!err.wrong; go('password'); return; }
-    fail(err && err.message ? err.message : 'I could not read that file.');
+    console.error('Could not read file', err);
+    fail(friendly(err));
   }
 }
 
@@ -91,11 +92,23 @@ function readText(text) {
   st.fileName = 'Pasted text'; st.pending = null;
   go('busy', 'Reading…');
   setTimeout(() => {
-    try { ingest(readPasted(text)); } catch (err) { fail(err && err.message ? err.message : 'I could not read that text.'); }
+    try { ingest(readPasted(text)); } catch (err) { console.error('Could not read text', err); fail(friendly(err, 'I could not read that text. Paste the rows exactly as they appear in your banking app or statement. Nothing was added.')); }
   }, 30);
 }
 
 function fail(message) { st.problem = message; go('problem'); }
+
+const GENERIC = 'I could not read this file. It may be damaged, or laid out in a way I do not know yet. Nothing was added. If your bank offers an Excel or CSV version of the statement, try that one.';
+// Messages written for people are kept. Anything else (a coding error inside the reader) becomes a plain sentence.
+const friendly = (err, fallback = GENERIC) => (err && err.name === 'Error' && typeof err.message === 'string' && err.message.length > 5 && err.message.length < 400 ? err.message : fallback);
+function oops(err) {
+  console.error('Import problem', err);
+  if (st) { st.adding = false; fail(friendly(err, 'Something went wrong while handling this file. Nothing was added. Go back and try again.')); }
+}
+// Every tap and every change inside the import runs under this, so a surprise can never leave the screen stuck.
+function safely(fn) {
+  try { const r = fn(); if (r && typeof r.catch === 'function') r.catch(oops); } catch (err) { oops(err); }
+}
 
 function csvText(rows) {
   const cell = (c) => { const s = String(c ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -138,7 +151,7 @@ function start(res) {
   st.rows = res.rows.map((r) => ({ ...r, currency: st.currency, on: true, touched: false }));
   st.rows.forEach((r) => classify(r));
   refreshDuplicates();
-  st.open = new Set(); st.taught = new Map(); st.leaveRest = false; st.showDups = false;
+  st.open = new Set(); st.taught = new Map(); st.leaveRest = false; st.showDups = st.rows.some((r) => r.dup === 'maybe'); // look-alikes are shown open, so nothing is left out unseen
   go('review');
 }
 
@@ -258,9 +271,18 @@ async function askLeave() {
   closeImport();
 }
 
-function commit() {
+async function commit() {
   const on = st.rows.filter((r) => r.on);
-  if (!on.length) return;
+  if (!on.length || st.adding) return;
+  // The bank's own running balance disagrees with some rows: the person must say they have looked.
+  const sum0 = st.result && st.result.summary;
+  if (sum0 && sum0.status === 'partial' && hooks.confirmMismatch) {
+    st.adding = true;
+    let go = false;
+    try { go = await hooks.confirmMismatch(sum0.bad); } finally { st.adding = false; }
+    if (!go || !st.rows.length) return;
+  }
+  st.adding = true; // from here the import is finished in one go, so a second tap cannot add it twice
   for (const t of st.taught.values()) if (on.some((r) => r.key === t.key && r.type === t.type)) store.learnMerchant(t.key, t.type, t.category);
   const rows = on.sort((a, b) => (a.date === b.date ? (a.time || '') < (b.time || '') ? -1 : 1 : a.date < b.date ? -1 : 1)).map((r) => {
     const t = { date: r.date, type: r.type, category: r.category, amount: r.amount, currency: st.currency, desc: r.desc };
@@ -456,8 +478,9 @@ const VIEWS = {
     const teach = g.unsure.length ? `<div class="teach">${icon('sparkles')}<div><p><b>${g.unsure.length} ${g.unsure.length === 1 ? 'name is' : 'names are'} new to me.</b> Choose what each one is and I will remember it, so next time it sorts itself.</p><button data-f="leave-rest">Leave the rest as ${esc(fallbackCategory('Expense'))}</button></div></div>` : '';
 
     const section = (title, list) => list.length ? `<section><div class="group-head"><h3>${title}</h3><span>${list.length}</span></div><div class="groups">${list.map(groupHTML).join('')}</div></section>` : '';
-    const dupHTML = dups.length ? `<section><button class="group-head dup-head" data-f="dups"><h3>Already in your list</h3><span>${dups.filter((r) => r.on).length ? dups.filter((r) => r.on).length + ' will be added again · ' : ''}${dups.length} ${st.showDups ? icon('chevD', 'ic-sm') : icon('chevR', 'ic-sm')}</span></button>
-      ${st.showDups ? `<div class="groups"><div class="group"><p class="caption" style="margin:0 0 6px">Left out because they match something you already have. Tick one to add it anyway.</p><div class="gitems" style="margin:0;border:0">${dups.map((r) => itemHTML(r, true)).join('')}</div></div></div>` : ''}</section>` : '';
+    const looseDups = dups.filter((r) => r.dup === 'maybe').length;
+    const dupHTML = dups.length ? `<section><button class="group-head dup-head" data-f="dups"><h3>${looseDups ? 'Possible repeats' : 'Already in your list'}</h3><span>${dups.filter((r) => r.on).length ? dups.filter((r) => r.on).length + ' will be added again · ' : ''}${dups.length} ${st.showDups ? icon('chevD', 'ic-sm') : icon('chevR', 'ic-sm')}</span></button>
+      ${st.showDups ? `<div class="groups"><div class="group"><p class="caption" style="margin:0 0 6px">Left out because they look like something you already have. <b>Same reference</b> is the very same payment. <b>Same day and amount</b> only means they look alike, so tick it if it is a different payment.</p><div class="gitems" style="margin:0;border:0">${dups.map((r) => itemHTML(r, true)).join('')}</div></div></div>` : ''}</section>` : '';
 
     return {
       title: 'Review', back: 'Cancel',
@@ -489,7 +512,7 @@ function itemHTML(r, dupView) {
   const bad = r.check === 'bad' ? `<span class="gi-bad" title="Does not match the balance">${icon('flag', 'ic-sm')}</span>` : '';
   return `<div class="gitem ${r.on ? '' : 'off'}">
     <button class="tick ${r.on ? 'on' : ''}" data-f="row" data-i="${r.i}" role="checkbox" aria-checked="${r.on}" aria-label="Include this row">${icon('check')}</button>
-    <div class="gi-txt"><div class="gi-d">${bad}${esc(A.fmtDay(r.date))}${r.time ? ' · ' + esc(r.time) : ''}${dupView ? ` · ${esc(r.desc)}` : ''}${r.dup === 'maybe' ? ' · same day and amount' : r.dup === 'same' ? ' · same reference' : ''}</div>${raw}
+    <div class="gi-txt"><div class="gi-d">${bad}${esc(A.fmtDay(r.date))}${r.time ? ' · ' + esc(r.time) : ''}${dupView ? ` · ${esc(r.desc)}` : ''}${r.dup === 'maybe' ? ' · same day and amount' : r.dup === 'likely' ? ' · same day, amount and name' : r.dup === 'same' ? ' · same reference' : ''}</div>${raw}
       ${dupView ? '' : `<label class="gi-cat">${esc(r.category)}<select data-f="rcat" data-i="${r.i}" aria-label="Category">${catOptions(r.type, r.category)}</select></label>`}</div>
     <div class="gi-right"><span class="gi-amt num ${r.type === 'Income' ? 'in' : ''}">${r.type === 'Income' ? '+' : ''}${money(r.amount)}</span>${flip && !dupView ? `<button class="gi-flip" data-f="flip" data-i="${r.i}">${r.type === 'Income' ? 'In' : 'Out'} ⇄</button>` : ''}</div>
   </div>`;

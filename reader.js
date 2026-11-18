@@ -108,7 +108,7 @@ async function pdfText(bytes, password) {
   const pdfjs = await import('./pdf.min.mjs');
   pdfjs.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.min.mjs', import.meta.url).href;
   let doc;
-  try { doc = await pdfjs.getDocument({ data: bytes.slice(), password: password || undefined }).promise; }
+  try { doc = await pdfjs.getDocument({ data: bytes.slice(), password: password || undefined, isEvalSupported: false }).promise; }
   catch (e) {
     if (e && e.name === 'PasswordException') { const err = new Error(e.code === 2 ? 'That password is not right.' : 'This PDF is locked with a password.'); err.needsPassword = true; err.wrong = e.code === 2; throw err; }
     throw new Error('I could not open this PDF.');

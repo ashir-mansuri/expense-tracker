@@ -1,3 +1,4 @@
+import { seal, open as openBytes } from './vault.js';
 // Receipt photos live in IndexedDB (localStorage is too small for images). Keyed by transaction id.
 const DB = 'expense-tracker';
 let dbPromise = null;
@@ -24,8 +25,49 @@ function run(mode, fn) {
   }));
 }
 
-export const putReceipt = (id, blob) => run('readwrite', (s) => s.put(blob, id));
-export const getReceipt = (id) => run('readonly', (s) => s.get(id)).catch(() => null);
+// When the person locks their saved data with a passphrase, receipt photos are locked with the same key.
+let rkey = null;
+export const setReceiptKey = (key) => { rkey = key; };
+const bytesOf = (blob) => new Response(blob).arrayBuffer().then((b) => new Uint8Array(b));
+
+async function wrap(blob) {
+  if (!rkey) return blob;
+  const { iv, data } = await seal(rkey, await bytesOf(blob));
+  return { locked: 1, type: blob.type || 'image/jpeg', iv, data };
+}
+async function unwrap(v) {
+  if (!v) return null;
+  if (typeof Blob !== 'undefined' && v instanceof Blob) return v;
+  if (v.locked && rkey) {
+    try { return new Blob([await openBytes(rkey, v.iv, v.data)], { type: v.type }); } catch { return null; }
+  }
+  return null;
+}
+
+export const putReceipt = async (id, blob) => { const v = await wrap(blob); return run('readwrite', (s) => s.put(v, id)); };
+export const getReceipt = (id) => run('readonly', (s) => s.get(id)).then(unwrap).catch(() => null);
+export const clearReceipts = () => run('readwrite', (s) => s.clear()).catch(() => null);
+
+// Locks every photo with `toKey`, or (with null) turns them back into plain photos. Safe to stop half way: both kinds stay readable.
+export async function convertReceipts(toKey) {
+  const from = rkey;
+  if (toKey) rkey = toKey;
+  const ids = await receiptIds();
+  for (const id of ids) {
+    const raw = await run('readonly', (s) => s.get(id));
+    if (toKey) {
+      if (!(raw instanceof Blob)) continue;
+      const v = await wrap(raw);
+      await run('readwrite', (s) => s.put(v, id));
+    } else {
+      if (raw instanceof Blob) continue;
+      const blob = await unwrap(raw);
+      if (blob) await run('readwrite', (s) => s.put(blob, id));
+    }
+  }
+  if (!toKey) rkey = null;
+  return from;
+}
 export const deleteReceipt = (id) => run('readwrite', (s) => s.delete(id)).catch(() => null);
 export const receiptIds = () => run('readonly', (s) => s.getAllKeys()).catch(() => []);
 
@@ -50,9 +92,14 @@ export function shrinkImage(file, max = 1280, quality = 0.8) {
 
 export const blobToDataURL = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
 
+// Turns "data:image/jpeg;base64,..." back into a photo without asking the network layer, which the security policy keeps closed.
 export async function dataURLToBlob(dataURL) {
-  const res = await fetch(dataURL);
-  return res.blob();
+  const m = /^data:([^;,]+);base64,(.*)$/s.exec(String(dataURL));
+  if (!m) throw new Error('That photo could not be read.');
+  const bin = atob(m[2]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: m[1] });
 }
 
 // For backups: { txId: dataURL }
