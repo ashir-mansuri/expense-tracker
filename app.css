@@ -652,10 +652,10 @@ body.flow-open { overflow: hidden; }
 }
 :root[data-look="cobalt"] body { font-feature-settings: "calt", "kern"; }
 
-/* sticky glass navbar: the old dark band dissolves, its top row stays pinned */
+/* sticky glass navbar: the old dark band dissolves, its top row stays pinned. Its layer (35) must stay below the forms (40+) or it covers their Cancel and Save buttons on an iPhone with a notch. */
 :root[data-look="cobalt"] .mast { display: contents; }
 :root[data-look="cobalt"] .mast-top {
-  position: sticky; top: 0; z-index: 50; min-height: 58px; padding: calc(var(--safe-t) + 9px) 20px 9px;
+  position: sticky; top: 0; z-index: 35; min-height: 58px; padding: calc(var(--safe-t) + 9px) 20px 9px;
   background: rgba(248, 250, 252, 0.8); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(226, 232, 240, 0.9);
 }
@@ -772,7 +772,7 @@ body.flow-open { overflow: hidden; }
 /* sticky glass navbar */
 :root[data-look="obsidian"] .mast { display: contents; }
 :root[data-look="obsidian"] .mast-top {
-  position: sticky; top: 0; z-index: 50; min-height: 58px; padding: calc(var(--safe-t) + 9px) 20px 9px;
+  position: sticky; top: 0; z-index: 35; min-height: 58px; padding: calc(var(--safe-t) + 9px) 20px 9px;
   background: rgba(11, 14, 17, 0.8); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   border-bottom: 1px solid #1E2530;
 }
@@ -824,6 +824,7 @@ body.flow-open { overflow: hidden; }
   font-family: var(--mono); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: -0.03em;
 }
 :root[data-look="obsidian"] .num:not(.hero-figure) { font-size: 0.93em; }
+:root[data-look="obsidian"] .hero-figure .sep { margin: 0 -0.12em 0 -0.2em; }
 :root[data-look="obsidian"] .tile .val { font-size: 16.5px; letter-spacing: -0.03em; }
 :root[data-look="obsidian"] .tile { min-width: 0; margin-right: 6px; }
 :root[data-look="obsidian"] .assist .a-figs .val { font-size: 16px; }
