@@ -696,7 +696,7 @@ function renderSettings() {
     <div><div class="section-title"><span>About</span></div><div class="rows">
       ${counts.map((x) => `<div class="row setting"><span class="grow">${x.c.code} transactions</span><span class="value num">${x.n}</span></div>`).join('')}
       <div class="row setting"><span class="grow">All transactions</span><span class="value num">${store.transactions.length}</span></div>
-      <div class="row setting"><span class="grow">Version</span><span class="value">3.5.1 (web)</span></div></div>
+      <div class="row setting"><span class="grow">Version</span><span class="value">3.5.2 (web)</span></div></div>
       <p class="footer-note">Everything is stored on this device only. Statements are read on this phone and never uploaded. The only request the app makes is for exchange rates, and only when a home currency is set.</p></div>
   </div></div>`;
 }
