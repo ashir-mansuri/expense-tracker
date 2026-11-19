@@ -696,7 +696,7 @@ function renderSettings() {
     <div><div class="section-title"><span>About</span></div><div class="rows">
       ${counts.map((x) => `<div class="row setting"><span class="grow">${x.c.code} transactions</span><span class="value num">${x.n}</span></div>`).join('')}
       <div class="row setting"><span class="grow">All transactions</span><span class="value num">${store.transactions.length}</span></div>
-      <div class="row setting"><span class="grow">Version</span><span class="value">3.6 (web)</span></div></div>
+      <div class="row setting"><span class="grow">Version</span><span class="value">3.6.1 (web)</span></div></div>
       <p class="footer-note">Everything is stored on this device only. Statements are read on this phone and never uploaded. The only request the app makes is for exchange rates, and only when a home currency is set.</p></div>
   </div></div>`;
 }
@@ -1026,7 +1026,7 @@ const GOAL_PLAN_FIELDS = new Set(['target', 'currency', 'startDate', 'deadline',
 const monthsText = (m) => { const x = Math.round(m * 10) / 10; return `${x} ${x === 1 ? 'month' : 'months'}`; };
 function goalDraft(v) { return { target: num(v.target), currency: v.currency, startDate: v.startDate, deadline: v.deadline || null, opening: num(v.opening) || 0, income: v.income }; }
 function goalPlanHTML(v) {
-  if (!(num(v.target) > 0) || !v.startDate) return `<p class="plan-empty">Enter a target amount and your plan appears here.</p>`;
+  if (!(num(v.target) > 0) || !v.startDate) return `<p class="plan-empty">Fill in the target above. Your plan is worked out for you and shows up here.</p>`;
   const p = A.goalPlan(goalDraft(v), store.transactions, new Date());
   const m = (x) => money(x, v.currency);
   const row = (label, value, note = '') => `<div class="plan-row"><span>${label}</span><span class="num">${value}</span></div>${note ? `<div class="plan-note">${note}</div>` : ''}`;
@@ -1058,7 +1058,12 @@ function goalPlanHTML(v) {
   else msg = 'Add a few months of entries to see when you would reach it, or add a deadline.';
   return rows.join('') + verdict(msg, kind);
 }
-function refreshGoalPlan() { const el = $('#goal-plan'); if (el && sheetState?.kind === 'goal') el.innerHTML = goalPlanHTML(sheetState.values); }
+// A plan that cannot be worked out says so, instead of leaving old text on screen (for example when one app file on the site is an old copy).
+function goalPlanSafe(v) {
+  try { return goalPlanHTML(v); }
+  catch (err) { console.error(err); return `<p class="plan-empty">The plan could not be worked out. Close the app completely and open it again. If this stays, one of the app files on the website is out of date.</p>`; }
+}
+function refreshGoalPlan() { const el = $('#goal-plan'); if (el && sheetState?.kind === 'goal') el.innerHTML = goalPlanSafe(sheetState.values); }
 function goalIncomeHTML(v) {
   if (!v.income.length) return '';
   return v.income.map((x, i) => `<div class="inc-row"><div class="grow"><b>${esc(x.name)}</b><span class="muted"> · ${money(x.amount, v.currency)} · ${esc(A.fmtDay(x.date))} ${esc(x.date.slice(0, 4))} · ${x.repeat === 'Monthly' ? 'every month' : 'once'}</span></div><button class="inc-del" data-action="goal-inc-del" data-i="${i}" aria-label="Remove ${esc(x.name)}">${icon('x')}</button></div>`).join('');
@@ -1087,7 +1092,7 @@ function renderGoalForm() {
     <div class="field"><label>Deadline (optional)</label><div class="control">${icon('flag')}<input type="date" value="${v.deadline}" data-field="deadline"></div>
       <div class="suggest periods" role="group" aria-label="Pick a period from today">${[3, 4, 6, 12].map((n) => `<button data-action="goal-period" data-months="${n}">${n} months</button>`).join('')}</div>
       <div class="hint">Pick a date, or a period counted from today.</div></div>
-    <div class="field"><label>Your plan</label><div class="plan" id="goal-plan">${goalPlanHTML(v)}</div></div>
+    <div class="field"><label>Your plan</label><div class="plan" id="goal-plan" role="status" aria-live="polite">${goalPlanSafe(v)}</div><div class="hint">Worked out for you from the boxes above. There is nothing to type here.</div></div>
     <div class="field"><label>Extra income you expect (optional)</label>
       <div id="inc-list">${goalIncomeHTML(v)}</div>
       <div class="inc-add">
