@@ -369,8 +369,8 @@ class Store {
 
   // ---- savings goals
   get goals() { return this.state.goals; }
-  addGoal({ name, target, currency, deadline = null, startDate }) {
-    const g = { id: uid(), name, target, currency, deadline, startDate, createdAt: Date.now() };
+  addGoal({ name, target, currency, deadline = null, startDate, opening = 0, income = [] }) {
+    const g = { id: uid(), name, target, currency, deadline, startDate, opening, income, createdAt: Date.now() };
     this.state.goals.push(g); this.commit(); return g;
   }
   updateGoal(id, changes) { const g = this.state.goals.find((x) => x.id === id); if (g) { Object.assign(g, changes); this.commit(); } }
