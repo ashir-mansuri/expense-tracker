@@ -1,5 +1,5 @@
 // Offline support: cache the app shell, serve it first, refresh in the background.
-const VERSION = 'et-v13';
+const VERSION = 'et-v14';
 const SHELL = [
   './', './index.html', './app.css', './app.js', './store.js', './analytics.js', './charts.js', './icons.js', './categorize.js', './quick.js', './entry.js', './owed.js', './importui.js', './statement.js', './reader.js', './sheets.js', './rates.js', './receipts.js', './xlsx.js', './schema.js', './vault.js', './prepaint.js',
   './display-500.woff', './display-700.woff', './inter-400.woff', './inter-500.woff', './inter-600.woff', './inter-700.woff', './jetbrains-mono-400.woff', './jetbrains-mono-700.woff',
