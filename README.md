@@ -15,11 +15,12 @@ Open it here: https://ashir-mansuri.github.io/expense-tracker/
 3. [Your first five minutes](#your-first-five-minutes)
 4. [The four looks](#the-four-looks)
 5. [What it can do](#what-it-can-do)
-6. [Backups: save, restore, move to a new phone](#backups-save-restore-move-to-a-new-phone)
-7. [Keeping your data safe](#keeping-your-data-safe)
-8. [Updating the app](#updating-the-app)
-9. [If something goes wrong](#if-something-goes-wrong)
-10. [Files and credits](#files-and-credits)
+6. [Plan a savings goal](#plan-a-savings-goal)
+7. [Backups: save, restore, move to a new phone](#backups-save-restore-move-to-a-new-phone)
+8. [Keeping your data safe](#keeping-your-data-safe)
+9. [Updating the app](#updating-the-app)
+10. [If something goes wrong](#if-something-goes-wrong)
+11. [Files and credits](#files-and-credits)
 
 ## Install it on an Android phone
 
@@ -106,10 +107,35 @@ About the Obsidian look
 - **Bank statements** (Excel, CSV, PDF or pasted text). A small helper on the phone reads the file, checks it against the bank's running balance, groups rows by payee, learns the names you teach it, skips rows you already have, and can undo the whole import.
 - **Add by typing:** write or dictate "250 chai", or paste a bank SMS ("debited by ... to ..."). The app works out amount, name, date and category on the phone, shows you what it understood, and adds it when you tap. No internet and no outside service is used.
 - **Who owes me:** "lent Ravi 500", "split dinner 1200 with Ravi and Meena", "Ravi paid back 300". It keeps the list, marks it off when they pay (also partly), spots a matching payment in your list, and can draft a reminder.
-- **Budgets** with optional rollover, **recurring entries**, written insights, month forecast and safe-to-spend, alerts for unusual spending, repeating-payment detection, savings goals, upcoming bills.
+- **Budgets** with optional rollover, **recurring entries**, written insights, month forecast and safe-to-spend, alerts for unusual spending, repeating-payment detection, savings goals with a monthly plan, upcoming bills.
 - **Accounts** with transfers, split transactions, tags, receipt photos, one home currency with daily rates.
 - **Reports and exports:** year in review, monthly report (on Insights, *View report*, then *Share / Save as PDF*; choose **Save as PDF** as the printer), Excel and CSV export, full backup and restore.
 - **Privacy:** PIN lock, optional passphrase that scrambles the saved data, password-protected backups.
+
+## Plan a savings goal
+A goal answers one question: **what do I need to save and earn each month to get there by a date?** For example, ₹3,00,000 in 4 months.
+
+![The goal plan, with made-up amounts](readme-goal-plan.png)
+
+*The goal form with its plan. Made-up amounts.*
+
+1. Open **More**, then **Savings goals**, then **Add goal** (or tap *Add* on the Home card).
+2. Give the goal a **name** and a **target**.
+3. Optional: **Already saved**. Money you already have for this goal that is not in the app.
+4. Pick a **deadline**, or tap *3, 4, 6 or 12 months* to count from today.
+5. Optional: **Extra income you expect**, such as a bonus (once) or a new client (every month). Add only money on top of what you earn now. Your usual income is read from your last 3 full months, so you do not need to type your salary.
+6. Read **Your plan**. It changes as you type. It shows:
+   - *Save each month*, and *Earn each month* (the saving plus what you usually spend).
+   - *You earn now* and *You spend now*, with your main income sources.
+   - A verdict. Either your income is enough, or by how much it falls short each month, and the month you would reach the goal at your current pace.
+7. Tap **Save**. The goal card on Home then shows whether you are on track.
+
+Good to know:
+- The plan needs a few months of entries to know what you earn and spend. Until then it only shows how much to save each month.
+- Expected income only feeds the plan. It never changes your balance. When the money arrives, add it as a normal entry.
+- With no deadline, the plan estimates the month you would finish at your usual pace.
+- Every goal counts what you keep (income minus expenses) from its own start date, so two goals at the same time both count the same money. They do not split it.
+- Your goals, the amount already saved and the expected income are all included in a backup.
 
 ## Backups: save, restore, move to a new phone
 
@@ -169,7 +195,7 @@ Everything sits in one flat folder, so it can be uploaded to GitHub with *Add fi
 | `importui.js`, `statement.js`, `reader.js`, `xlsx.js` | Bank statement import |
 | `analytics.js`, `charts.js`, `categorize.js`, `rates.js`, `receipts.js`, `sheets.js`, `icons.js` | Insights, charts, categories, exchange rates, receipt photos, bottom sheets, icons |
 | `prepaint.js` | Sets the colours before the first paint so there is no flash |
-| `sw.js` | Lets the app work without internet. Its version is `et-v13`; raise it whenever any file changes so phones pick up the new copy |
+| `sw.js` | Lets the app work without internet. Its version is `et-v14`; raise it whenever any file changes so phones pick up the new copy |
 | `manifest.webmanifest`, `icon-*.png`, `apple-touch-icon.png` | What the phone needs to install it |
 | `display-500.woff`, `display-700.woff` | Fonts for the Indigo and Gold looks |
 | `inter-400.woff` to `inter-700.woff`, `inter-license.txt` | Inter, the text font of the Cobalt and Obsidian looks |
@@ -179,4 +205,4 @@ Everything sits in one flat folder, so it can be uploaded to GitHub with *Add fi
 
 Credits: pdf.js 6.2.108 by Mozilla (Apache License 2.0, https://github.com/mozilla/pdf.js). Inter by Rasmus Andersson and The Inter Project Authors (SIL Open Font License 1.1, see `inter-license.txt`). JetBrains Mono by JetBrains (SIL Open Font License 1.1, see `jetbrains-mono-license.txt`). Everything else is original to this project.
 
-Version 3.5.2 (web). Fixes on the iPhone home-screen app: the Cancel and Save buttons on the Edit and New transaction screens could not be tapped in the Cobalt and Obsidian looks, and the Close and Open in Safari buttons of the monthly and yearly reports sat under the notch. The large Obsidian balance now has tighter commas.
+Version 3.6 (web). New: the goal planner. A savings goal now works out how much to save and earn each month, whether your income is enough, and when you would finish, with an Already saved amount, quick 3, 4, 6 and 12 month deadlines, and expected extra income. It also includes the 3.5.2 fixes (Cancel and Save on the Edit screens, and the report buttons under the iPhone notch).
