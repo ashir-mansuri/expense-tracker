@@ -1,4 +1,4 @@
-import { store, processRecurring, exportCSV, todayISO, CURRENCIES, nextDue, uid } from './store.js';
+import { store, processRecurring, exportCSV, todayISO, CURRENCIES, nextDue, uid, stepDate } from './store.js';
 import * as A from './analytics.js';
 import * as C from './charts.js';
 import { icon } from './icons.js';
@@ -666,7 +666,7 @@ function renderSettings() {
 
     <div><div class="section-title"><span>Savings goals</span></div><div class="rows">${goals}
       <button class="row setting" data-action="add-goal">${icon('plus')}<span class="grow">Add goal</span><span class="value">${icon('chevR')}</span></button></div>
-      <p class="footer-note">Progress is what you keep (income minus expenses) from the goal's start date.</p></div>
+      <p class="footer-note">Progress is what you keep (income minus expenses) from the goal's start date, plus anything you marked as already saved. Open a goal to see its plan.</p></div>
 
     <div><div class="section-title"><span>Automation</span></div><div class="rows">
       <label class="row setting">${icon('doc')}<span class="grow">Monthly report reminder</span><input type="checkbox" data-action="toggle-reports" ${st.reportsEnabled ? 'checked' : ''}></label>
@@ -696,7 +696,7 @@ function renderSettings() {
     <div><div class="section-title"><span>About</span></div><div class="rows">
       ${counts.map((x) => `<div class="row setting"><span class="grow">${x.c.code} transactions</span><span class="value num">${x.n}</span></div>`).join('')}
       <div class="row setting"><span class="grow">All transactions</span><span class="value num">${store.transactions.length}</span></div>
-      <div class="row setting"><span class="grow">Version</span><span class="value">3.5.2 (web)</span></div></div>
+      <div class="row setting"><span class="grow">Version</span><span class="value">3.6 (web)</span></div></div>
       <p class="footer-note">Everything is stored on this device only. Statements are read on this phone and never uploaded. The only request the app makes is for exchange rates, and only when a home currency is set.</p></div>
   </div></div>`;
 }
@@ -1016,9 +1016,64 @@ function saveTransfer() {
 // ---- goal form
 function goalForm(goal = null) {
   const k = A.currentKey();
-  const v = { name: goal?.name || '', target: goal ? String(goal.target) : '', currency: goal?.currency || store.settings.currency, deadline: goal?.deadline || '', startDate: goal?.startDate || `${A.keyStr(k)}-01` };
+  const v = { name: goal?.name || '', target: goal ? String(goal.target) : '', currency: goal?.currency || store.settings.currency, deadline: goal?.deadline || '', startDate: goal?.startDate || `${A.keyStr(k)}-01`,
+    opening: goal?.opening ? String(goal.opening) : '', income: (goal?.income || []).map((x) => ({ ...x })), incName: '', incAmount: '', incDate: todayISO(), incRepeat: 'Once' };
   sheetState = { kind: 'goal', id: goal?.id || null, values: v };
   renderGoalForm();
+}
+// The plan under the goal form: what to save and earn each month, and whether your income is enough. It updates as you type.
+const GOAL_PLAN_FIELDS = new Set(['target', 'currency', 'startDate', 'deadline', 'opening']);
+const monthsText = (m) => { const x = Math.round(m * 10) / 10; return `${x} ${x === 1 ? 'month' : 'months'}`; };
+function goalDraft(v) { return { target: num(v.target), currency: v.currency, startDate: v.startDate, deadline: v.deadline || null, opening: num(v.opening) || 0, income: v.income }; }
+function goalPlanHTML(v) {
+  if (!(num(v.target) > 0) || !v.startDate) return `<p class="plan-empty">Enter a target amount and your plan appears here.</p>`;
+  const p = A.goalPlan(goalDraft(v), store.transactions, new Date());
+  const m = (x) => money(x, v.currency);
+  const row = (label, value, note = '') => `<div class="plan-row"><span>${label}</span><span class="num">${value}</span></div>${note ? `<div class="plan-note">${note}</div>` : ''}`;
+  const verdict = (text, kind = '') => `<div class="plan-verdict ${kind}">${text}</div>`;
+  if (p.remaining === 0) return verdict('Goal reached. What you have already saved covers it.', 'good');
+  const rows = [row('Still to save', m(p.remaining))];
+  if (p.hasDeadline && v.deadline < todayISO()) return rows.join('') + verdict('That deadline has passed. Pick a later date.', 'warn');
+  if (p.hasDeadline) {
+    rows.push(row('Time left', monthsText(p.monthsLeft)), row('Save each month', m(p.needSave)));
+    if (p.hasHistory) rows.push(row('Earn each month', m(p.needEarn), `${m(p.needSave)} to save, plus about ${m(p.usualExpense)} you usually spend`));
+  }
+  if (p.hasHistory) {
+    const src = p.sources.length > 1 ? p.sources.map((x) => `${esc(x.name)} ${m(x.perMonth)}`).join(' · ') : '';
+    rows.push(row('You earn now', m(p.usualIncome), src), row('You spend now', m(p.usualExpense)));
+  }
+  if (p.hasDeadline && p.expectedCount) rows.push(row('Expected extra income', m(p.expectedInPeriod), `About ${m(p.expectedPerMonth)} a month on average`));
+  let msg = '', kind = '';
+  const known = p.hasHistory || p.expectedInPeriod > 0;
+  if (p.hasDeadline) {
+    if (!known) msg = 'Add a few months of entries and I will show whether your income is enough.';
+    else if (p.enough) { msg = `Your income is enough. You would save about ${m(Math.max(p.projectedSave, 0))} a month and need ${m(p.needSave)}.`; kind = 'good'; }
+    else {
+      msg = `Short by ${m(p.gap)} a month${p.expectedInPeriod > 0 ? ', even with your expected income' : ''}. To close the gap, earn that much more each month or spend that much less.`;
+      msg += p.finishISO ? ` At your current pace you reach it around ${A.fmtMonthYear(p.finishISO)}.` : ' At your current pace you would not reach it.';
+      kind = 'warn';
+    }
+  } else if (p.finishISO) { msg = `At your usual pace you reach it around ${A.fmtMonthYear(p.finishISO)} (about ${monthsText(p.finishMonths)}).`; kind = 'good'; }
+  else if (p.hasHistory) { msg = 'You are not saving each month yet, so there is no finish date. Add a deadline to see what you would need to save and earn.'; kind = 'warn'; }
+  else msg = 'Add a few months of entries to see when you would reach it, or add a deadline.';
+  return rows.join('') + verdict(msg, kind);
+}
+function refreshGoalPlan() { const el = $('#goal-plan'); if (el && sheetState?.kind === 'goal') el.innerHTML = goalPlanHTML(sheetState.values); }
+function goalIncomeHTML(v) {
+  if (!v.income.length) return '';
+  return v.income.map((x, i) => `<div class="inc-row"><div class="grow"><b>${esc(x.name)}</b><span class="muted"> · ${money(x.amount, v.currency)} · ${esc(A.fmtDay(x.date))} ${esc(x.date.slice(0, 4))} · ${x.repeat === 'Monthly' ? 'every month' : 'once'}</span></div><button class="inc-del" data-action="goal-inc-del" data-i="${i}" aria-label="Remove ${esc(x.name)}">${icon('x')}</button></div>`).join('');
+}
+// Adds what was typed in the "expected income" boxes as a line; returns false when there is nothing valid to add.
+function addGoalIncome() {
+  const v = sheetState?.values; if (!v) return false;
+  const amount = num(v.incAmount);
+  if (!(amount > 0) || !v.incDate || v.income.length >= 20) return false;
+  v.income.push({ name: (v.incName || '').trim().slice(0, 60) || 'Expected income', amount, date: v.incDate, repeat: v.incRepeat === 'Monthly' ? 'Monthly' : 'Once' });
+  v.incName = ''; v.incAmount = '';
+  const list = $('#inc-list'); if (list) list.innerHTML = goalIncomeHTML(v);
+  for (const f of ['incName', 'incAmount']) { const i = $(`#sheet [data-field="${f}"]`); if (i) i.value = ''; }
+  refreshGoalPlan();
+  return true;
 }
 function renderGoalForm() {
   const st = sheetState, v = st.values, editing = !!st.id;
@@ -1027,8 +1082,22 @@ function renderGoalForm() {
   <div class="sheet-body">
     <div class="field"><label>Name</label><div class="control"><input value="${esc(v.name)}" data-field="name" placeholder="e.g. Emergency fund, Trip to Japan" ${editing ? '' : 'autofocus'}></div></div>
     <div class="field"><label>Target</label><div class="control"><input class="amount num" inputmode="decimal" placeholder="0" value="${esc(v.target)}" data-field="target"><select data-field="currency" style="flex:0 0 auto">${CURRENCIES.map((c) => `<option value="${c.code}" ${c.code === v.currency ? 'selected' : ''}>${c.code}</option>`).join('')}</select></div></div>
+    <div class="field"><label>Already saved (optional)</label><div class="control"><input class="amount num" inputmode="decimal" placeholder="0" value="${esc(v.opening)}" data-field="opening"></div><div class="hint">Money you already have for this goal, outside what this app has recorded.</div></div>
     <div class="field"><label>Counting from</label><div class="control">${icon('calendar')}<input type="date" value="${v.startDate}" data-field="startDate"></div><div class="hint">Everything you keep (income minus expenses) from this date counts towards the goal.</div></div>
-    <div class="field"><label>Deadline (optional)</label><div class="control">${icon('flag')}<input type="date" value="${v.deadline}" data-field="deadline"></div></div>
+    <div class="field"><label>Deadline (optional)</label><div class="control">${icon('flag')}<input type="date" value="${v.deadline}" data-field="deadline"></div>
+      <div class="suggest periods" role="group" aria-label="Pick a period from today">${[3, 4, 6, 12].map((n) => `<button data-action="goal-period" data-months="${n}">${n} months</button>`).join('')}</div>
+      <div class="hint">Pick a date, or a period counted from today.</div></div>
+    <div class="field"><label>Your plan</label><div class="plan" id="goal-plan">${goalPlanHTML(v)}</div></div>
+    <div class="field"><label>Extra income you expect (optional)</label>
+      <div id="inc-list">${goalIncomeHTML(v)}</div>
+      <div class="inc-add">
+        <div class="control"><input value="${esc(v.incName)}" data-field="incName" maxlength="60" placeholder="What is it? e.g. Bonus, new client"></div>
+        <div class="inc-two"><div class="control"><input class="num" inputmode="decimal" placeholder="Amount" value="${esc(v.incAmount)}" data-field="incAmount"></div>
+          <div class="control"><input type="date" value="${v.incDate}" data-field="incDate"></div></div>
+        <div class="inc-two"><div class="control"><select data-field="incRepeat"><option value="Once" ${v.incRepeat === 'Once' ? 'selected' : ''}>Once</option><option value="Monthly" ${v.incRepeat === 'Monthly' ? 'selected' : ''}>Every month</option></select></div>
+          <button class="btn secondary" data-action="goal-inc-add">${icon('plus')} Add</button></div>
+      </div>
+      <div class="hint">Your usual income is read from your last 3 months. Add only extra money you expect, like a bonus, a new client or a raise. It only feeds this plan and never changes your balance.</div></div>
     ${editing ? `<button class="btn danger block" data-action="f-delete-goal">Delete goal</button>` : ''}
   </div>`;
   paintSheet(html, st);
@@ -1036,7 +1105,8 @@ function renderGoalForm() {
 function saveGoal() {
   const st = sheetState, v = st.values;
   if (!(v.name.trim() && num(v.target) > 0 && v.startDate)) return;
-  const data = { name: v.name.trim(), target: num(v.target), currency: v.currency, deadline: v.deadline || null, startDate: v.startDate };
+  addGoalIncome(); // money typed in the boxes but not added with "Add" still counts
+  const data = { name: v.name.trim(), target: num(v.target), currency: v.currency, deadline: v.deadline || null, startDate: v.startDate, opening: num(v.opening) > 0 ? num(v.opening) : 0, income: v.income };
   if (st.id) store.updateGoal(st.id, data); else store.addGoal(data);
   closeSheet(); toast('Saved');
 }
@@ -1134,6 +1204,9 @@ document.addEventListener('click', async (e) => {
   else if (a === 'f-owe-remove') { const v = sheetState.values; v.owe = false; v.owePerson = ''; v.oweAmount = ''; renderTxForm(); }
   else if (a === 'f-delete-owed') { if (await ask('This removes the line from Who owes me. It does not change your transactions.', { title: 'Delete this?' })) { const d = store.deleteOwed(sheetState.id); closeSheet(); toast('Deleted', { label: 'Undo', fn: () => { store.restoreOwed(d); toast('Restored'); } }); } }
   else if (a === 'add-goal') goalForm();
+  else if (a === 'goal-period' && sheetState?.kind === 'goal') { const d = stepDate(todayISO(), 'Monthly', +btn.dataset.months); sheetState.values.deadline = d; const i = $('#sheet [data-field="deadline"]'); if (i) i.value = d; refreshGoalPlan(); }
+  else if (a === 'goal-inc-add' && sheetState?.kind === 'goal') { if (!addGoalIncome()) toast('Enter an amount and a date first'); }
+  else if (a === 'goal-inc-del' && sheetState?.kind === 'goal') { sheetState.values.income.splice(+btn.dataset.i, 1); const list = $('#inc-list'); if (list) list.innerHTML = goalIncomeHTML(sheetState.values); refreshGoalPlan(); }
   else if (a === 'edit-goal') { const g = store.goals.find((x) => x.id === btn.dataset.id); if (g) goalForm(g); }
   else if (a === 'sheet-cancel') closeSheet();
   else if (a === 'sheet-save') {
@@ -1223,6 +1296,7 @@ document.addEventListener('input', (e) => {
       const box = el.closest('.field').querySelector('.suggest'); const s = suggestionsFor(sheetState.values); if (box) box.innerHTML = s.map((x) => `<button data-action="f-suggest" data-value="${esc(x)}">${esc(x)}</button>`).join('');
       clearTimeout(descTimer); descTimer = setTimeout(() => { if (sheetState?.kind === 'tx') autoFill(sheetState.values); }, 250);
     }
+    if (sheetState.kind === 'goal' && GOAL_PLAN_FIELDS.has(el.dataset.field)) refreshGoalPlan();
     const save = $('#sheet .save');
     if (save) {
       const k = sheetState.kind, v = sheetState.values;
@@ -1241,6 +1315,7 @@ document.addEventListener('change', async (e) => {
   if (el.dataset.field && sheetState) {
     sheetState.values[el.dataset.field] = el.value;
     const k = sheetState.kind;
+    if (k === 'goal' && GOAL_PLAN_FIELDS.has(el.dataset.field)) refreshGoalPlan();
     if (k === 'tx') {
       if (el.dataset.field === 'category') { sheetState.values.catTouched = true; sheetState.values.auto = null; const h = $('#auto-hint'); if (h) h.innerHTML = ''; }
       if (['repeat', 'currency'].includes(el.dataset.field)) renderTxForm();
