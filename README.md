@@ -124,7 +124,7 @@ A goal answers one question: **what do I need to save and earn each month to get
 3. Optional: **Already saved**. Money you already have for this goal that is not in the app.
 4. Pick a **deadline**, or tap *3, 4, 6 or 12 months* to count from today.
 5. Optional: **Extra income you expect**, such as a bonus (once) or a new client (every month). Add only money on top of what you earn now. Your usual income is read from your last 3 full months, so you do not need to type your salary.
-6. Read **Your plan**. It changes as you type. It shows:
+6. Read **Your plan**. It is worked out for you, so there is nothing to type in it. It fills in and changes as you complete the boxes above. It shows:
    - *Save each month*, and *Earn each month* (the saving plus what you usually spend).
    - *You earn now* and *You spend now*, with your main income sources.
    - A verdict. Either your income is enough, or by how much it falls short each month, and the month you would reach the goal at your current pace.
@@ -172,11 +172,12 @@ Do this regularly. The app reminds you when it has been a while.
 The app lives in the GitHub repository `ashir-mansuri/expense-tracker`, shown on the web through GitHub Pages.
 
 1. On github.com open the repository, then **Add file**, then **Upload files**.
-2. Drag in the new or changed files from the zip (all files go in the one flat folder, with no subfolders). Keep the same file names; GitHub replaces the old ones.
+2. Drag in the new or changed files from the zip (all files go in the one flat folder, with no subfolders). Keep the same file names; GitHub replaces the old ones. Use drag and drop, and do not type or edit a file name: GitHub treats `Store.js` and `store.js` as two different files, and the app only finds the all-lowercase names.
 3. Tap **Commit changes**. Wait a minute or two for GitHub Pages to publish.
 4. On the phone, open the app **twice** (close it fully between the two). The first open fetches the new files, the second shows them. *More*, at the bottom, shows the version number.
 
 ## If something goes wrong
+- **A new box looks empty or does nothing, or the version looks wrong.** Check the file list on GitHub. Every file name must be exactly as in the table below, all lowercase (for example `analytics.js`, not `Analytics.js`). If one starts with a capital letter, open it, tap the pencil, correct the name at the top and commit.
 - **The app still shows the old version.** Close it completely (swipe it away) and open it again, twice. On Android you can also open the site in Chrome and pull down to refresh.
 - **My entries disappeared.** First check you are in the same place you used before. On iPhone, Safari and the home-screen app do not share data. Then restore your latest backup.
 - **No "Install app" in Chrome.** Look for *Add to home screen*. Make sure the page has fully loaded, and that you are in Chrome rather than inside another app's built-in browser.
@@ -195,7 +196,7 @@ Everything sits in one flat folder, so it can be uploaded to GitHub with *Add fi
 | `importui.js`, `statement.js`, `reader.js`, `xlsx.js` | Bank statement import |
 | `analytics.js`, `charts.js`, `categorize.js`, `rates.js`, `receipts.js`, `sheets.js`, `icons.js` | Insights, charts, categories, exchange rates, receipt photos, bottom sheets, icons |
 | `prepaint.js` | Sets the colours before the first paint so there is no flash |
-| `sw.js` | Lets the app work without internet. Its version is `et-v14`; raise it whenever any file changes so phones pick up the new copy |
+| `sw.js` | Lets the app work without internet. Its version is `et-v15`; raise it whenever any file changes so phones pick up the new copy |
 | `manifest.webmanifest`, `icon-*.png`, `apple-touch-icon.png` | What the phone needs to install it |
 | `display-500.woff`, `display-700.woff` | Fonts for the Indigo and Gold looks |
 | `inter-400.woff` to `inter-700.woff`, `inter-license.txt` | Inter, the text font of the Cobalt and Obsidian looks |
@@ -205,4 +206,4 @@ Everything sits in one flat folder, so it can be uploaded to GitHub with *Add fi
 
 Credits: pdf.js 6.2.108 by Mozilla (Apache License 2.0, https://github.com/mozilla/pdf.js). Inter by Rasmus Andersson and The Inter Project Authors (SIL Open Font License 1.1, see `inter-license.txt`). JetBrains Mono by JetBrains (SIL Open Font License 1.1, see `jetbrains-mono-license.txt`). Everything else is original to this project.
 
-Version 3.6 (web). New: the goal planner. A savings goal now works out how much to save and earn each month, whether your income is enough, and when you would finish, with an Already saved amount, quick 3, 4, 6 and 12 month deadlines, and expected extra income. It also includes the 3.5.2 fixes (Cancel and Save on the Edit screens, and the report buttons under the iPhone notch).
+Version 3.6.1 (web). The goal plan is now a tinted result card, so it no longer looks like a box to type in, and it says clearly when it cannot be worked out. Includes 3.6: the goal planner, which works out how much to save and earn each month, whether your income is enough, and when you would finish, with an Already saved amount, quick 3, 4, 6 and 12 month deadlines, and expected extra income. Also includes the 3.5.2 fixes (Cancel and Save on the Edit screens, and the report buttons under the iPhone notch).
