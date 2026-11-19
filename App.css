@@ -333,13 +333,14 @@ h1, h2, h3, p { margin: 0; }
 .inc-del { flex: 0 0 auto; width: 40px; height: 40px; margin: -8px -8px -8px 0; display: grid; place-items: center; color: var(--ink-3); border-radius: 50%; }
 .inc-add { display: flex; flex-direction: column; gap: 10px; }
 .inc-two { display: flex; flex-wrap: wrap; gap: 10px; } .inc-two > .control { flex: 1 1 130px; min-width: 0; } .inc-two > .btn { flex: 1 1 130px; }
-.plan { display: flex; flex-direction: column; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+/* The plan is a result, not a box to type in: a tinted card with no input border. */
+.plan { display: flex; flex-direction: column; gap: 8px; background: var(--accent-soft); border: 0; border-radius: 14px; padding: 14px; cursor: default; }
 .plan-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 14.5px; }
 .plan-row > span:first-child { color: var(--ink-2); } .plan-row .num { font-weight: 600; text-align: right; }
 .plan-note { font-size: 12.5px; color: var(--ink-3); margin-top: -4px; line-height: 1.35; }
 .plan-verdict { margin-top: 4px; padding: 10px 12px; border-radius: 10px; font-size: 14px; line-height: 1.45; background: var(--paper); border-left: 3px solid var(--accent); color: var(--ink); }
 .plan-verdict.warn { border-left-color: var(--bad); } .plan-verdict.good { border-left-color: var(--good); }
-.plan-empty { font-size: 13.5px; color: var(--ink-3); }
+.plan-empty { font-size: 14px; line-height: 1.45; color: var(--ink-2); margin: 0; }
 .suggest { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
 .suggest::-webkit-scrollbar { display: none; }
 .suggest.periods { flex-wrap: wrap; overflow: visible; gap: 6px; } .suggest.periods button { padding: 6px 10px; }
