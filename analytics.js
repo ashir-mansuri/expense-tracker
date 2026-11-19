@@ -1,5 +1,5 @@
 // Pure calculations over the ledger: month summaries, insights, sentences.
-import { parseISODate, nextDue, toISODate } from './store.js';
+import { parseISODate, nextDue, toISODate, stepDate } from './store.js';
 import { normalise } from './categorize.js';
 
 export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -228,31 +228,93 @@ export function subscriptions(items, rules) {
   return out.sort((a, b) => b.monthly - a.monthly);
 }
 
-// Progress towards each savings goal: what was kept (income − expenses) since the goal started.
+// ---- Goal planner: how much to save and earn each month, whether income is enough, and when the goal is likely to be reached.
+const DAY_MS = 86400000, MONTH_DAYS = 30.44;
+const addDaysISO = (iso, n) => { const d = parseISODate(iso); d.setDate(d.getDate() + n); return toISODate(d); };
+export const fmtMonthYear = (iso) => parseISODate(iso).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+
+// When expected extra income arrives, from one day to another (each line is once or monthly).
+export function expectedEvents(lines, fromISO, toISO) {
+  const out = [];
+  for (const l of Array.isArray(lines) ? lines : []) {
+    const amount = Number(l && l.amount);
+    if (!(amount > 0) || typeof l.date !== 'string') continue;
+    const steps = l.repeat === 'Monthly' ? 130 : 1;
+    for (let i = 0; i < steps; i++) {
+      const date = i === 0 ? l.date : stepDate(l.date, 'Monthly', i);
+      if (date > toISO) break;
+      if (date >= fromISO) out.push({ date, amount, name: l.name || 'Expected income' });
+    }
+  }
+  return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+export function goalPlan(g, transactions, now = new Date()) {
+  const today = toISODate(now);
+  const mine = transactions.filter((t) => t.currency === g.currency);
+  const opening = Number(g.opening) > 0 ? Number(g.opening) : 0;
+  const recorded = mine.filter((t) => t.date >= (g.startDate || '')).reduce((a, t) => a + (t.type === 'Income' ? t.amount : -t.amount), 0);
+  const raw = opening + recorded;
+  const saved = Math.max(raw, 0);
+  const remaining = Math.max(g.target - raw, 0);
+  // What you usually earn and spend: the last 3 full months that have entries.
+  const totals = totalsByMonth(mine);
+  let cursor = prevKey(keyOf(today)), n = 0, inc = 0, exp = 0;
+  const keys = [];
+  for (let i = 0; i < 3; i++) {
+    const k = keyStr(cursor), v = totals.get(k);
+    if (v && (v.income || v.expense)) { inc += v.income; exp += v.expense; n += 1; keys.push(k); }
+    cursor = prevKey(cursor);
+  }
+  const hasHistory = n > 0;
+  const usualIncome = n ? inc / n : 0, usualExpense = n ? exp / n : 0, usualSave = usualIncome - usualExpense;
+  const bySource = new Map();
+  for (const t of mine) if (t.type === 'Income' && keys.includes(t.date.slice(0, 7))) bySource.set(t.category, (bySource.get(t.category) || 0) + t.amount);
+  const sources = [...bySource.entries()].map(([name, total]) => ({ name, perMonth: total / n })).sort((a, b) => b.perMonth - a.perMonth).slice(0, 3);
+  // Expected extra income, counted only from today on.
+  const hasDeadline = !!g.deadline;
+  const monthsLeft = hasDeadline ? Math.max((parseISODate(g.deadline) - now) / (MONTH_DAYS * DAY_MS), 0.1) : null;
+  const events = expectedEvents(g.income, today, addDaysISO(today, 3650));
+  const inPeriod = hasDeadline ? events.filter((e) => e.date <= g.deadline) : events;
+  const expectedInPeriod = inPeriod.reduce((a, e) => a + e.amount, 0);
+  // Month by month at the usual pace plus the expected income: the first month in which the target is reached.
+  let finishISO = null, finishMonths = null;
+  if (remaining > 0 && (usualSave > 0 || events.length)) {
+    let k = 0, lump = 0;
+    for (let m = 1; m <= 120; m++) {
+      const iso = addDaysISO(today, Math.round(m * MONTH_DAYS));
+      while (k < events.length && events[k].date <= iso) { lump += events[k].amount; k++; }
+      if (usualSave * m + lump >= remaining - 0.005) { finishISO = iso; finishMonths = m; break; }
+    }
+  }
+  let needSave = null, needEarn = null, expectedPerMonth = 0, projectedSave = usualSave, gap = null, enough = null;
+  if (hasDeadline && remaining > 0) {
+    needSave = remaining / monthsLeft;
+    expectedPerMonth = expectedInPeriod / monthsLeft;
+    projectedSave = usualSave + expectedPerMonth;
+    needEarn = needSave + usualExpense;
+    gap = needSave - projectedSave;
+    enough = gap <= 0.5;
+  }
+  const f = (x) => fmtMoney(x, g.currency);
+  let status = 'started', detail = '';
+  if (remaining === 0) { status = 'done'; detail = 'Goal reached'; }
+  else if (hasDeadline) {
+    if (!hasHistory && !expectedInPeriod) detail = `Needs ${f(needSave)}/month`;
+    else { status = enough ? 'on-track' : 'behind'; detail = `${enough ? 'On track' : 'Behind'} · needs ${f(needSave)}/month, saving ${f(Math.max(projectedSave, 0))}/month`; }
+  } else if (finishISO) {
+    status = 'on-track'; detail = `Around ${fmtMonthYear(finishISO)} · about ${finishMonths} ${finishMonths === 1 ? 'month' : 'months'} to go`;
+  } else if (hasHistory) { status = 'behind'; detail = 'Not saving each month yet'; }
+  else detail = 'Add income and expenses to see a forecast';
+  return { today, raw, saved, remaining, hasHistory, months: n, usualIncome, usualExpense, usualSave, sources, hasDeadline, monthsLeft,
+    expectedInPeriod, expectedCount: inPeriod.length, expectedPerMonth, needSave, needEarn, projectedSave, gap, enough, finishISO, finishMonths, status, detail };
+}
+
+// Progress of each savings goal, for the Home card and the list in More.
 export function goalProgress(goals, transactions, now = new Date()) {
-  const todayKey = currentKey();
   return goals.map((g) => {
-    const items = transactions.filter((t) => t.currency === g.currency && t.date >= g.startDate);
-    const saved = items.reduce((a, t) => a + (t.type === 'Income' ? t.amount : -t.amount), 0);
-    const progress = Math.max(0, Math.min(saved / g.target, 1));
-    // typical monthly saving: last 3 full months with data
-    const totals = totalsByMonth(transactions.filter((t) => t.currency === g.currency));
-    let cursor = prevKey(todayKey), sum = 0, n = 0;
-    for (let i = 0; i < 3; i++) { const v = totals.get(keyStr(cursor)); if (v && (v.income || v.expense)) { sum += v.income - v.expense; n += 1; } cursor = prevKey(cursor); }
-    const perMonth = n ? sum / n : 0;
-    const remaining = Math.max(g.target - saved, 0);
-    let status = 'started', detail = '';
-    if (remaining === 0) { status = 'done'; detail = 'Goal reached'; }
-    else if (g.deadline) {
-      const monthsLeft = Math.max((parseISODate(g.deadline) - now) / (30.44 * 86400000), 0.1);
-      const needed = remaining / monthsLeft;
-      status = perMonth >= needed ? 'on-track' : 'behind';
-      detail = `${status === 'on-track' ? 'On track' : 'Behind'} · needs ${fmtMoney(needed, g.currency)}/month, saving ${fmtMoney(Math.max(perMonth, 0), g.currency)}`;
-    } else if (perMonth > 0) {
-      const months = Math.ceil(remaining / perMonth);
-      status = 'on-track'; detail = `About ${months} ${months === 1 ? 'month' : 'months'} to go at ${fmtMoney(perMonth, g.currency)}/month`;
-    } else detail = 'Add income and expenses to see a forecast';
-    return { ...g, saved: Math.max(saved, 0), progress, remaining, perMonth, status, detail };
+    const p = goalPlan(g, transactions, now);
+    return { ...g, saved: p.saved, progress: Math.max(0, Math.min(p.raw / g.target, 1)), remaining: p.remaining, perMonth: p.usualSave, status: p.status, detail: p.detail, plan: p };
   });
 }
 
