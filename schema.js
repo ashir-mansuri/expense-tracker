@@ -78,7 +78,18 @@ function goal(g) {
   if (!isObj(g)) return null;
   const id = idOf(g.id), name = str(g.name, 80), target = money(g.target), currency = code(g.currency);
   if (!id || !name || !name.trim() || target === null || !currency) return null;
-  return { id, name: name.trim(), target, currency, deadline: validISODate(g.deadline) ? g.deadline : null, startDate: validISODate(g.startDate) ? g.startDate : null, createdAt: num(g.createdAt) ?? 0 };
+  const opening = num(g.opening) !== null && g.opening > 0 && g.opening <= 1e12 ? Math.round(g.opening * 100) / 100 : 0;
+  const income = (Array.isArray(g.income) ? g.income : []).slice(0, 50).map(expectedLine).filter(Boolean);
+  return { id, name: name.trim(), target, currency, deadline: validISODate(g.deadline) ? g.deadline : null, startDate: validISODate(g.startDate) ? g.startDate : null, opening, income, createdAt: num(g.createdAt) ?? 0 };
+}
+
+// One line of expected extra income on a goal: what, how much, when, and whether it repeats monthly.
+function expectedLine(l) {
+  if (!isObj(l)) return null;
+  const amount = money(l.amount);
+  if (amount === null || !validISODate(l.date)) return null;
+  const name = (str(l.name ?? '', 60) ?? '').trim();
+  return { name: name || 'Expected income', amount, date: l.date, repeat: l.repeat === 'Monthly' ? 'Monthly' : 'Once' };
 }
 
 function owedItem(d) {
